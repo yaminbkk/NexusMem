@@ -51,7 +51,8 @@ export function hasContradictionCheck(db: Database, candidateId: string, against
 /**
  * Open YES verdicts for this project, newest judgment first. "Open" means
  * the candidate has not been superseded since -- once a human ran
- * `mark-stale`, the suggestion did its job and stops being listed.
+ * `mark-stale`, the suggestion did its job and stops being listed -- and
+ * has not been explicitly dismissed via {@link dismissContradictionSuggestion}.
  */
 export function listContradictionSuggestions(
   db: Database,
@@ -66,7 +67,7 @@ export function listContradictionSuggestions(
        FROM contradiction_checks c
        JOIN nodes n ON n.id = c.candidate_id
        JOIN nodes a ON a.id = c.against_id
-       WHERE n.project_id = @projectId AND c.contradicts = 1
+       WHERE n.project_id = @projectId AND c.contradicts = 1 AND c.dismissed = 0
          AND c.candidate_id NOT IN (SELECT supersedes FROM nodes WHERE project_id = @projectId AND supersedes IS NOT NULL)
        ORDER BY c.checked_at DESC
        LIMIT @limit`,
@@ -81,9 +82,30 @@ export function countContradictionSuggestions(db: Database, projectId: string): 
       `SELECT COUNT(*) AS count
        FROM contradiction_checks c
        JOIN nodes n ON n.id = c.candidate_id
-       WHERE n.project_id = @projectId AND c.contradicts = 1
+       WHERE n.project_id = @projectId AND c.contradicts = 1 AND c.dismissed = 0
          AND c.candidate_id NOT IN (SELECT supersedes FROM nodes WHERE project_id = @projectId AND supersedes IS NOT NULL)`,
     )
     .get({ projectId }) as { count: number };
   return row.count;
+}
+
+/**
+ * Reject every currently-open YES verdict for `candidateId` -- the fix for
+ * "no rejection state" (flagged externally, see
+ * docs/forget-mechanism.md-style writeups for the pattern): a suggestion the
+ * reviewing human judges wrong stops resurfacing without pretending
+ * `mark-stale` was run. Scoped through the same `nodes.project_id` join
+ * `listContradictionSuggestions` uses, so an id from another project cannot
+ * be dismissed by accident. Returns how many rows were actually flipped, so
+ * the CLI can report "no open suggestion for that id" on 0.
+ */
+export function dismissContradictionSuggestion(db: Database, projectId: string, candidateId: string): number {
+  return db
+    .prepare(
+      `UPDATE contradiction_checks
+       SET dismissed = 1
+       WHERE candidate_id = @candidateId AND contradicts = 1 AND dismissed = 0
+         AND candidate_id IN (SELECT id FROM nodes WHERE project_id = @projectId)`,
+    )
+    .run({ projectId, candidateId }).changes;
 }

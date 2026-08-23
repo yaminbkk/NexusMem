@@ -258,6 +258,7 @@ program
     'ask the local SLM whether a similar newer node actually contradicts each candidate (needs Ollama)',
   )
   .option('--model <name>', 'Ollama chat model for --check-contradictions', STALE_DEFAULT_MODEL)
+  .option('--dismiss <candidateId>', 'reject the open contradiction suggestion for this node id so it stops resurfacing')
   .action((options) =>
     guard(() =>
       runStale({
@@ -266,6 +267,7 @@ program
         limit: options.limit,
         checkContradictions: options.checkContradictions,
         model: options.model,
+        dismiss: options.dismiss,
       }),
     )(),
   );

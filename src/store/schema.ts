@@ -238,6 +238,15 @@ CREATE TABLE contradiction_checks (
 );
 `;
 
+// A contradiction suggestion the reviewing human disagreed with had no way to
+// say so -- the plain listing (stale.ts) re-prints every open YES verdict on
+// every run forever, with mark-stale as the only way to make one stop, which
+// only works when the suggestion was actually right. `dismissed` lets a wrong
+// verdict be silenced without pretending the candidate was superseded.
+const V9 = `
+ALTER TABLE contradiction_checks ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0;
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -253,6 +262,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 6, up: (db) => db.exec(V6) },
   { version: 7, up: (db) => db.exec(V7) },
   { version: 8, up: (db) => db.exec(V8) },
+  { version: 9, up: (db) => db.exec(V9) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

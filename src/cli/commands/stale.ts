@@ -17,6 +17,13 @@ export interface StaleOptions {
    */
   checkContradictions?: boolean;
   model?: string;
+  /**
+   * Reject the open contradiction suggestion for this candidate id instead of
+   * listing anything -- the missing "no" verb a suggestion needed so a wrong
+   * one stops re-printing on every future `stale`/sync without a human
+   * pretending `mark-stale` was warranted.
+   */
+  dismiss?: string;
   out?: (chunk: string) => void;
 }
 
@@ -38,6 +45,16 @@ export async function runStale(opts: StaleOptions): Promise<number> {
 
   const store = MemoryStore.open(ws.dbPath);
   try {
+    if (opts.dismiss) {
+      const dismissed = store.dismissContradictionSuggestion(projectId, opts.dismiss);
+      out(
+        dismissed > 0
+          ? `${pc.green('dismissed')} the contradiction suggestion for ${opts.dismiss} -- it will not resurface\n`
+          : `${pc.dim('no open contradiction suggestion')} for ${opts.dismiss} -- nothing to dismiss\n`,
+      );
+      return 0;
+    }
+
     const candidates = store.listStaleCandidates(projectId, { minAgeDays: opts.minAgeDays, limit: opts.limit });
 
     if (candidates.length === 0) {

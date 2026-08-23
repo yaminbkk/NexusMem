@@ -61,6 +61,7 @@ import { search, stats, type SearchHit, type StoreStats } from './search.js';
 import { getMeta, setMeta } from './meta.js';
 import {
   countContradictionSuggestions,
+  dismissContradictionSuggestion,
   hasContradictionCheck,
   listContradictionSuggestions,
   recordContradictionCheck,
@@ -350,6 +351,11 @@ export class MemoryStore {
 
   countContradictionSuggestions(projectId: string): number {
     return countContradictionSuggestions(this.db, projectId);
+  }
+
+  /** Reject every open suggestion for this candidate; returns how many were actually dismissed. */
+  dismissContradictionSuggestion(projectId: string, candidateId: string): number {
+    return dismissContradictionSuggestion(this.db, projectId, candidateId);
   }
 
   /** Escape hatch for tests and future modules. */

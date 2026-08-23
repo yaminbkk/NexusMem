@@ -123,6 +123,51 @@ describe('nexusmem stale', () => {
     expect(text).toMatch(/the decision was reversed/);
   });
 
+  it('--dismiss silences a standing YES verdict without touching supersedes, and the plain listing stops decorating it', async () => {
+    const veryOld = new Date(Date.now() - 100 * 86_400_000).toISOString();
+    seed([
+      node(projectId, { id: 'old-claim', title: 'stale claim' }),
+      node(projectId, { id: 'newer-evidence', title: 'newer evidence', ts: veryOld }),
+    ]);
+
+    const ws = resolveWorkspace(dir);
+    const store = MemoryStore.open(ws.dbPath);
+    store.recordContradictionCheck({
+      candidateId: 'old-claim',
+      againstId: 'newer-evidence',
+      contradicts: true,
+      reason: 'the decision was reversed',
+      model: 'test-model',
+    });
+    store.close();
+
+    const dismissChunks: string[] = [];
+    const dismissCode = await runStale({ cwd: dir, dismiss: 'old-claim', out: (c) => dismissChunks.push(c) });
+    expect(dismissCode).toBe(0);
+    expect(dismissChunks.join('')).toMatch(/dismissed/);
+
+    const listChunks: string[] = [];
+    await runStale({ cwd: dir, minAgeDays: 45, out: (c) => listChunks.push(c) });
+    const text = listChunks.join('');
+    expect(text).not.toMatch(/likely superseded by/); // discriminating: proves dismissed=1 is actually filtered, not just written
+    expect(text).toMatch(/old-claim/); // the plain heuristic listing itself is untouched -- only the suggestion decoration is gone
+
+    // discriminating: dismiss must not fabricate a supersedes relationship
+    const after = MemoryStore.open(ws.dbPath);
+    try {
+      expect(after.getSupersededIds(projectId).has('old-claim')).toBe(false);
+    } finally {
+      after.close();
+    }
+  });
+
+  it('--dismiss on a candidate id with no open suggestion reports nothing to do, and re-dismissing is a no-op', async () => {
+    const chunks: string[] = [];
+    const code = await runStale({ cwd: dir, dismiss: 'never-suggested', out: (c) => chunks.push(c) });
+    expect(code).toBe(0);
+    expect(chunks.join('')).toMatch(/no open contradiction suggestion/);
+  });
+
   it('omits a node that mark-stale already superseded', async () => {
     const veryOld = new Date(Date.now() - 100 * 86_400_000).toISOString();
     seed([
