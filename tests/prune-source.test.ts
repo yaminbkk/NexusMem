@@ -265,6 +265,30 @@ describe('sync --prune-source / --prune-stale-shell', () => {
     expect(after['shell:pwsh-hook']).toBe(1);
   });
 
+  it('writes one mutation_audit row for a --yes prune, but none for a dry-run preview -- the gap an external review flagged', async () => {
+    seed([shellNode(projectId, 'shell:pwsh', '1'), shellNode(projectId, 'shell:pwsh', '2')]);
+
+    // Dry-run first: previewing must not itself create a record of a delete that never happened.
+    await runSync({ cwd: dir, full: false, rebuild: false, quiet: true, noEmbed: true, pruneSource: 'shell:pwsh', out: () => {} });
+    const ws = resolveWorkspace(dir);
+    const beforeYes = MemoryStore.open(ws.dbPath);
+    const auditBeforeYes = beforeYes.listMutationAudit(projectId);
+    beforeYes.close();
+    expect(auditBeforeYes).toEqual([]); // discriminating: dry-run wrote zero audit rows
+
+    await runSync({ cwd: dir, full: false, rebuild: false, quiet: true, noEmbed: true, pruneSource: 'shell:pwsh', yes: true, out: () => {} });
+
+    const after = MemoryStore.open(ws.dbPath);
+    try {
+      const audit = after.listMutationAudit(projectId);
+      expect(audit).toHaveLength(1);
+      expect(audit[0]).toMatchObject({ action: 'prune_source', projectId, affectedCount: 2, succeeded: true });
+      expect(JSON.parse(audit[0]!.detail)).toMatchObject({ sources: ['shell:pwsh'] });
+    } finally {
+      after.close();
+    }
+  });
+
   it('reports nothing to do, and does not fall through to a normal sync, when no node matches', async () => {
     const chunks: string[] = [];
     const code = await runSync({

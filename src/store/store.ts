@@ -6,6 +6,7 @@ import type { MemoryNode } from '../core/types.js';
 import type { FileEdge } from '../structure/types.js';
 import type { DenyListEntry, DenyListInput } from './deny-list.js';
 import { migrate } from './schema.js';
+import { listMutationAudit, recordMutationAudit, type MutationAuditInput, type MutationAuditRow } from './audit.js';
 import {
   countProjectNodes,
   getSyncCursor,
@@ -356,6 +357,16 @@ export class MemoryStore {
   /** Reject every open suggestion for this candidate; returns how many were actually dismissed. */
   dismissContradictionSuggestion(projectId: string, candidateId: string): number {
     return dismissContradictionSuggestion(this.db, projectId, candidateId);
+  }
+
+  /** Record one `mutation_audit` row for a coarse/destructive operation outside `forget` (currently: `--prune-source`/`--prune-stale-shell`). */
+  recordMutationAudit(input: MutationAuditInput): number {
+    return recordMutationAudit(this.db, input);
+  }
+
+  /** Newest-first `mutation_audit` rows for this project -- every `forget` and `--prune-source` run, whether or not anything matched. */
+  listMutationAudit(projectId: string, opts: { limit?: number } = {}): MutationAuditRow[] {
+    return listMutationAudit(this.db, projectId, opts);
   }
 
   /** Escape hatch for tests and future modules. */

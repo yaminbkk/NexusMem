@@ -509,8 +509,23 @@ function runPruneSources(
   // Passing an empty keep-list is a full wipe of the source, not the
   // incremental prune `syncDocs` above uses it for -- there is no fresh scan
   // to diff against for a source nothing collects anymore.
+  const startedAt = Date.now();
   let removed = 0;
   for (const { source, id } of counts) removed += store.pruneSourceNodes(id, source, []);
+  // Coarse deletes previously left no trace at all -- `forget` writes
+  // `mutation_audit`, this didn't, an asymmetry an external review flagged
+  // (docs/forget-mechanism.md). No tombstones here: unlike `forget`, this
+  // path deletes by source/id, not by value, so there is no single matched
+  // value to hash.
+  store.recordMutationAudit({
+    action: 'prune_source',
+    projectId,
+    detail: { sources, scopeProjectIds: scopeIds },
+    affectedCount: removed,
+    succeeded: true,
+    startedAt,
+    finishedAt: Date.now(),
+  });
   const identityPart = otherProjectIds.length > 0 ? `, ${scopeIds.length} project identit${scopeIds.length === 1 ? 'y' : 'ies'}` : '';
   out(`${pc.green('pruned')} ${removed} node(s) across ${sources.length} source(s)${identityPart}\n`);
   return 0;
