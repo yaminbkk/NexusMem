@@ -214,6 +214,35 @@ describe('transient spawn retry', () => {
     expect(h.calls()).toBe(4); // one attempt plus three retries
   });
 
+  /**
+   * A third real Windows failure mode, distinct from both above: git's own
+   * launcher shim fails to exec the real `git.exe` under the same handle/AV
+   * contention that causes spawn EPERM, but reports it through a clean
+   * non-zero exit rather than a spawn error. Observed live from
+   * `git rev-parse --show-toplevel` during this suite's own full run.
+   */
+  it('retries "error launching git" -- a clean exit that is not really git\'s verdict', async () => {
+    const h = harness([
+      { code: 1, stderr: 'error launching git: Access is denied.\n' },
+      { stdout: 'C:/repo\n' },
+    ]);
+
+    await expect(git('/repo', ['rev-parse', '--show-toplevel'], h.opts)).resolves.toBe('C:/repo\n');
+
+    expect(h.calls()).toBe(2);
+    expect(h.sleeps).toEqual([50]);
+  });
+
+  it('gives up on a persistent "error launching git" as GitSpawnError, not GitError', async () => {
+    const h = harness([{ code: 1, stderr: 'error launching git: Access is denied.\n' }]);
+
+    const err = await git('/repo', ['status'], h.opts).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(GitSpawnError);
+    expect(err).not.toBeInstanceOf(GitError);
+    expect(h.calls()).toBe(4); // one attempt plus three retries
+  });
+
   it('does not retry Ctrl+C -- that is the user stopping, not a fault', async () => {
     const h = harness([{ code: CONTROL_C_EXIT }]);
 

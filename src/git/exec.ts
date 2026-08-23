@@ -102,6 +102,17 @@ function crashStatus(code: number, signal: NodeJS.Signals | null): string | null
  */
 const TRANSIENT_SPAWN_CODES = new Set(['EAGAIN', 'EPERM', 'EACCES', 'EMFILE', 'ENFILE', 'ENOMEM', 'EBUSY', 'ETXTBSY']);
 
+/**
+ * Git for Windows' own launcher can fail to exec the real `git.exe` under the
+ * same handle/AV contention that causes a raw spawn EPERM elsewhere -- but it
+ * reports that failure through a clean non-zero exit instead of a spawn
+ * error, e.g. `error launching git: Access is denied.` from `git rev-parse`.
+ * Observed live under this suite's own parallel load. Without this check that
+ * surfaces as `GitError` (git's own verdict) even though a retry very likely
+ * succeeds, same as the spawn-EPERM and mid-run-crash cases below.
+ */
+const GIT_LAUNCH_FAILURE = /error launching git/i;
+
 function toSpawnError(err: unknown, cwd: string, args: string[]): GitSpawnError {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
 
@@ -243,6 +254,17 @@ async function* runGitOnce(cwd: string, args: string[], opts: GitExecOptions): A
 
   if (code !== 0) {
     const trimmed = stderr.trim();
+
+    if (GIT_LAUNCH_FAILURE.test(trimmed)) {
+      throw new GitSpawnError(
+        `Could not start git (${trimmed.split('\n')[0]}) in ${cwd}. This is usually transient on Windows -- retrying the same command often succeeds.`,
+        fullArgs,
+        undefined,
+        true,
+        null,
+      );
+    }
+
     // Lead with git's own first line: now that callers no longer rewrite every
     // failure into "not a git repository", this message is what the user sees
     // for the cases that aren't specifically handled.
