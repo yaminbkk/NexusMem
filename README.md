@@ -248,7 +248,9 @@ One thing that is not a percentage: shell commands and conversation turns have n
 equivalent. Without something recording them, they are gone, not merely more expensive to find.
 
 For how these numbers compare to a similar tool's own claims, see
-[`docs/competitor-comparison.md`](docs/competitor-comparison.md).
+[`docs/competitor-comparison.md`](docs/competitor-comparison.md) (vs. projectmem) and
+[`docs/competitor-comparison-yesmem.md`](docs/competitor-comparison-yesmem.md) (vs. YesMem, including
+native Windows support vs. its documented WSL2 requirement).
 
 Latency on a ~530-node corpus, warm, p50 over 10 runs:
 
