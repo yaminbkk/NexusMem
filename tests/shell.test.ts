@@ -296,6 +296,26 @@ describe('PowerShell hook snippet', () => {
     const snippet = renderHookSnippet("C:\\Users\\O'Brien\\log.jsonl");
     expect(snippet).toContain("'C:\\Users\\O''Brien\\log.jsonl'");
   });
+
+  it('captures $? and $LASTEXITCODE as the first statements of prompt(), before Get-History can overwrite $?', () => {
+    const snippet = renderHookSnippet('C:/log.jsonl');
+    const body = snippet.slice(snippet.indexOf('function global:prompt {'));
+    const okLine = body.indexOf('$__ssd_ok = $?');
+    const exitLine = body.indexOf('$__ssd_exit = $LASTEXITCODE');
+    const historyLine = body.indexOf('Get-History');
+    expect(okLine).toBeGreaterThan(-1);
+    expect(exitLine).toBeGreaterThan(okLine);
+    expect(historyLine).toBeGreaterThan(exitLine);
+  });
+
+  it('forces exitCode to 0 on a successful command regardless of a stale nonzero $LASTEXITCODE from an earlier native failure', () => {
+    // The bug: $LASTEXITCODE is only ever set by a native exe, so it stays
+    // stuck at an old failing value through any number of later successful
+    // cmdlets. Reading $? (which every command updates) as well is what
+    // stops that stale value from being reported as this command's outcome.
+    const snippet = renderHookSnippet('C:/log.jsonl');
+    expect(snippet).toContain('exitCode = if ($__ssd_ok) { 0 } elseif ($__ssd_exit) { $__ssd_exit } else { 1 }');
+  });
 });
 
 describe('hook install/remove/status (filesystem, scratch profile)', () => {

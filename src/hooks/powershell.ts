@@ -29,6 +29,9 @@ export function renderHookSnippet(logPath: string): string {
     '$global:__ssd_last_history_id = -1',
     `$global:__ssd_log_path = ${toPowerShellLiteral(logPath)}`,
     'function global:prompt {',
+    // Must be first: Get-History (or anything else) below would overwrite $?.
+    '  $__ssd_ok = $?',
+    '  $__ssd_exit = $LASTEXITCODE',
     '  $__ssd_h = Get-History -Count 1 -ErrorAction SilentlyContinue',
     '  if ($__ssd_h -and $__ssd_h.Id -ne $global:__ssd_last_history_id) {',
     '    $global:__ssd_last_history_id = $__ssd_h.Id',
@@ -36,7 +39,8 @@ export function renderHookSnippet(logPath: string): string {
     '      $__ssd_entry = [ordered]@{',
     '        ts = (Get-Date).ToString("o")',
     '        cwd = (Get-Location).Path',
-    '        exitCode = $LASTEXITCODE',
+    // $LASTEXITCODE alone misses cmdlet failures and goes stale after them; $? catches both.
+    '        exitCode = if ($__ssd_ok) { 0 } elseif ($__ssd_exit) { $__ssd_exit } else { 1 }',
     '        durationMs = [int](($__ssd_h.EndExecutionTime - $__ssd_h.StartExecutionTime).TotalMilliseconds)',
     '        command = $__ssd_h.CommandLine',
     '      }',
