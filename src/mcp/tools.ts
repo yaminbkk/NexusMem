@@ -26,6 +26,8 @@ export interface SearchMemoryInput {
   noVector?: boolean;
   /** Search every repository NexusMem has been run in on this machine, not just `projectRoot`. */
   allProjects?: boolean;
+  /** ISO-8601 date/time: only nodes recorded (not just dated) at or before this instant -- "what did the store hold as of then", not "what happened then". */
+  asOf?: string;
 }
 
 export interface SearchMemoryOutput {
@@ -45,10 +47,17 @@ export async function searchMemory(input: SearchMemoryInput): Promise<SearchMemo
   const projectId = makeProjectId({ root: repo.root, originUrl: repo.originUrl });
   const budget = input.budget ?? 2000;
   const candidates = input.candidates ?? 30;
+  let asOfEpoch: number | undefined;
+  if (input.asOf) {
+    const parsed = Date.parse(input.asOf);
+    if (Number.isNaN(parsed)) throw new Error(`asOf "${input.asOf}" is not a parseable date`);
+    asOfEpoch = parsed;
+  }
   const queryOpts = {
     budget,
     candidates,
     embeddingProvider: input.noVector ? null : new OllamaEmbeddingProvider(),
+    asOfEpoch,
   };
 
   if (input.allProjects) {

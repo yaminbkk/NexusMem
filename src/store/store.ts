@@ -58,8 +58,9 @@ import {
   vectorSearch,
   type EmbeddableNode,
   type VectorHit,
+  type VectorSearchOptions,
 } from './embeddings.js';
-import { search, stats, type SearchHit, type StoreStats } from './search.js';
+import { search, stats, type SearchHit, type SearchOptions, type StoreStats } from './search.js';
 import { getMeta, setMeta } from './meta.js';
 import {
   countContradictionSuggestions,
@@ -74,8 +75,8 @@ import {
 export type { ProjectRecord } from './projects.js';
 export type { IngestStats, LinkedNode, RecentNode, StaleCandidate } from './nodes.js';
 export type { ForgetPreview, ForgetResult, ImportDenyListResult, ImportPreviewItem } from './forget.js';
-export type { EmbeddableNode, VectorHit } from './embeddings.js';
-export type { SearchHit, StoreStats } from './search.js';
+export type { EmbeddableNode, VectorHit, VectorSearchOptions } from './embeddings.js';
+export type { SearchHit, SearchOptions, StoreStats } from './search.js';
 export type { ContradictionCheckInput, ContradictionSuggestionRow } from './contradictions.js';
 
 export class MemoryStore {
@@ -300,16 +301,16 @@ export class MemoryStore {
     setMeta(this.db, key, value);
   }
 
-  vectorSearch(projectId: string, embedding: Float32Array, limit = 20): VectorHit[] {
-    return vectorSearch(this.db, projectId, embedding, limit);
+  vectorSearch(projectId: string, embedding: Float32Array, limit = 20, opts: VectorSearchOptions = {}): VectorHit[] {
+    return vectorSearch(this.db, projectId, embedding, limit, opts);
   }
 
   stats(projectId: string): StoreStats {
     return stats(this.db, projectId);
   }
 
-  search(projectId: string, query: string, limit = 20): SearchHit[] {
-    return search(this.db, projectId, query, limit);
+  search(projectId: string, query: string, limit = 20, opts: SearchOptions = {}): SearchHit[] {
+    return search(this.db, projectId, query, limit, opts);
   }
 
   /** The project a node belongs to, or null if no node has this id. Used by `mark-stale` to validate both ids. */

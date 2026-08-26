@@ -19,11 +19,27 @@ export interface QueryOptions {
   noVector?: boolean;
   /** Search every registered repository, not just this one. */
   allProjects?: boolean;
+  /** ISO-8601 date/time: only nodes recorded (not just dated) at or before this instant -- "what did the store hold as of then". */
+  asOf?: string;
   json: boolean;
+}
+
+export class QueryError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QueryError';
+  }
 }
 
 export async function runQuery(opts: QueryOptions): Promise<number> {
   const { repo, ws, projectId } = await loadContext(opts.cwd);
+
+  let asOfEpoch: number | undefined;
+  if (opts.asOf) {
+    const parsed = Date.parse(opts.asOf);
+    if (Number.isNaN(parsed)) throw new QueryError(`--as-of "${opts.asOf}" is not a parseable date`);
+    asOfEpoch = parsed;
+  }
 
   // Exactly one of these owns the database handles: cross-project mode opens
   // this repo's database as one source among several, so opening it twice
@@ -39,6 +55,7 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
       candidates: opts.candidates,
       halfLifeDays: opts.halfLifeDays,
       embeddingProvider: opts.noVector ? null : new OllamaEmbeddingProvider(),
+      asOfEpoch,
     };
 
     let result;
@@ -49,6 +66,10 @@ export async function runQuery(opts: QueryOptions): Promise<number> {
       result = await runHybridQuery(store, projectId, opts.query, queryOpts);
     }
     const { bm25Count, vectorCount, hits, packed } = result;
+
+    if (asOfEpoch !== undefined && !opts.json) {
+      process.stderr.write(`${pc.dim('as of  ')} ${new Date(asOfEpoch).toISOString()} -- excludes anything recorded after\n`);
+    }
 
     if (opened && !opts.json) {
       const searched = opened.sources.map((s) => s.label).join(', ');

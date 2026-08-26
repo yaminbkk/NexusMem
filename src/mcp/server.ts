@@ -29,10 +29,16 @@ export function createServer(): McpServer {
           .describe(
             'Search every repository NexusMem has been run in on this machine, not just projectRoot. Use when the answer may live in a different project (a pattern solved elsewhere, a tool that failed the same way before). Each result is tagged with its repository.',
           ),
+        asOf: z
+          .string()
+          .optional()
+          .describe(
+            'ISO-8601 date/time. Restricts results to nodes recorded at or before this instant -- "what did memory hold as of then", not "what happened then". Omit for the normal, unrestricted read.',
+          ),
       },
     },
-    async ({ projectRoot, query, budget, allProjects }) => {
-      const result = await searchMemory({ projectRoot, query, budget, allProjects });
+    async ({ projectRoot, query, budget, allProjects, asOf }) => {
+      const result = await searchMemory({ projectRoot, query, budget, allProjects, asOf });
       // The packed context block goes in BOTH fields: clients differ on which
       // one they surface to the model, and a client that prefers
       // structuredContent would otherwise see only the match stats -- the

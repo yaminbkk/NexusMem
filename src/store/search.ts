@@ -43,6 +43,17 @@ export interface StoreStats {
   distinctFiles: number;
 }
 
+export interface SearchOptions {
+  /**
+   * Restrict results to nodes recorded (`created_at`) at or before this
+   * epoch-ms instant -- "what did the store hold as of then", the record-time
+   * axis, as opposed to the default `ts`-driven "what happened then". Nodes
+   * written by a later sync are excluded even if the event they describe was
+   * older.
+   */
+  asOfEpoch?: number;
+}
+
 /**
  * Lexical search over the corpus.
  *
@@ -50,10 +61,15 @@ export interface StoreStats {
  * about is far stronger evidence than the same word buried in a file list.
  * Ranking by `relevance x signal` happens a layer up, in retrieval.
  */
-export function search(db: Database, projectId: string, query: string, limit = 20): SearchHit[] {
+export function search(db: Database, projectId: string, query: string, limit = 20, opts: SearchOptions = {}): SearchHit[] {
   const match = toMatchQuery(query);
   if (!match) return [];
 
+  // Two positional binds for the same value: better-sqlite3 does not allow
+  // mixing named and anonymous parameters in one statement, so an
+  // optional-and-repeated `?` is the plain way to express "no filter when
+  // unset" while staying consistent with this function's existing style.
+  const asOfEpoch = opts.asOfEpoch ?? null;
   const rows = db
     .prepare(
       `SELECT n.id, n.kind, n.ts, n.title, n.body, n.signal, n.provenance, n.trust_state AS trustState,
@@ -61,10 +77,11 @@ export function search(db: Database, projectId: string, query: string, limit = 2
        FROM nodes_fts
        JOIN nodes n ON n.rowid = nodes_fts.rowid
        WHERE nodes_fts MATCH ? AND n.project_id = ?
+         AND (? IS NULL OR n.created_at <= ?)
        ORDER BY rank
        LIMIT ?`,
     )
-    .all(match, projectId, limit) as NodeRow[];
+    .all(match, projectId, asOfEpoch, asOfEpoch, limit) as NodeRow[];
 
   return rows;
 }

@@ -87,6 +87,11 @@ export function dropAllEmbeddings(db: Database): number {
   return db.prepare('DELETE FROM nodes_vec').run().changes;
 }
 
+export interface VectorSearchOptions {
+  /** Same record-time cutoff as `search`'s `asOfEpoch` -- see `SearchOptions`. */
+  asOfEpoch?: number;
+}
+
 /**
  * Nearest-neighbour search over the corpus.
  *
@@ -95,16 +100,24 @@ export function dropAllEmbeddings(db: Database): number {
  * before joining and filtering, then caps to `limit`. Simple and correct;
  * not the efficient way to do this at a scale this project isn't at yet.
  */
-export function vectorSearch(db: Database, projectId: string, embedding: Float32Array, limit = 20): VectorHit[] {
+export function vectorSearch(
+  db: Database,
+  projectId: string,
+  embedding: Float32Array,
+  limit = 20,
+  opts: VectorSearchOptions = {},
+): VectorHit[] {
   const overfetch = Math.max(limit * 8, 50);
+  const asOfEpoch = opts.asOfEpoch ?? null;
   return db
     .prepare(
       `SELECT n.id, n.kind, n.ts, n.title, n.body, n.signal, n.provenance, n.trust_state AS trustState, v.distance AS distance
        FROM nodes_vec v
        JOIN nodes n ON n.rowid = v.rowid
        WHERE v.embedding MATCH ? AND k = ? AND n.project_id = ?
+         AND (? IS NULL OR n.created_at <= ?)
        ORDER BY v.distance
        LIMIT ?`,
     )
-    .all(embedding, overfetch, projectId, limit) as VectorHit[];
+    .all(embedding, overfetch, projectId, asOfEpoch, asOfEpoch, limit) as VectorHit[];
 }

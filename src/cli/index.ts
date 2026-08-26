@@ -15,7 +15,7 @@ import { MarkStaleError, runMarkStale } from './commands/mark-stale.js';
 import { runProjects } from './commands/projects.js';
 import { runMcpServer } from '../mcp/server.js';
 import { runPrecheck } from './commands/precheck.js';
-import { runQuery } from './commands/query.js';
+import { QueryError, runQuery } from './commands/query.js';
 import { ReviewError, runReview } from './commands/review.js';
 import { runScanConversation } from './commands/scan-conversation.js';
 import { runScanDiff } from './commands/scan-diff.js';
@@ -43,6 +43,7 @@ function isExpected(err: unknown): err is Error {
     err instanceof ForeignGitHookError ||
     err instanceof DenyListError ||
     err instanceof MarkStaleError ||
+    err instanceof QueryError ||
     err instanceof ReviewError
   );
 }
@@ -191,6 +192,7 @@ program
   .option('--half-life <days>', 'days for a node\'s recency weight to halve', (v) => Number.parseFloat(v))
   .option('--no-vector', 'BM25 only -- skip embedding the query and vector search')
   .option('-a, --all-projects', 'search every registered repository, not just this one', false)
+  .option('--as-of <date>', 'bi-temporal read: only nodes recorded at or before this date -- "what did the store hold then", not "what happened then"')
   .option('--json', 'emit the packed result as JSON on stdout', false)
   .action((text: string, options) =>
     guard(() =>
@@ -202,6 +204,7 @@ program
         halfLifeDays: options.halfLife,
         noVector: !options.vector,
         allProjects: options.allProjects,
+        asOf: options.asOf,
         json: options.json,
       }),
     )(),

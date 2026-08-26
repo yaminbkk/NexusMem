@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runQuery } from '../src/cli/commands/query.js';
+import { runQuery, QueryError } from '../src/cli/commands/query.js';
 import { gitFixture } from './helpers.js';
 import { MemoryStore } from '../src/store/store.js';
 import { resolveWorkspace } from '../src/config/workspace.js';
@@ -120,5 +120,63 @@ describe('nexusmem query', () => {
     expect(result.matched).toBeGreaterThan(0);
     expect(Array.isArray(result.packed)).toBe(true);
     expect(result.packed.some((n: { id: string }) => n.id === 'n1')).toBe(true);
+  });
+
+  it('--as-of rejects an unparseable date without touching the store', async () => {
+    await expect(
+      runQuery({ cwd: dir, query: 'anything', budget: 2000, candidates: 30, noVector: true, json: false, asOf: 'not-a-date' }),
+    ).rejects.toThrow(QueryError);
+  });
+
+  it('--as-of excludes a node recorded after the cutoff -- the bi-temporal read', async () => {
+    seedNode({ id: 'n1', title: 'ranker cap joint priors', body: 'because bounding each prior separately let the pair overturn 4x' });
+    const ws = resolveWorkspace(dir);
+    const store = MemoryStore.open(ws.dbPath);
+    store.raw.prepare('UPDATE nodes SET created_at = ? WHERE id = ?').run(Date.parse('2026-06-01T00:00:00Z'), 'n1');
+    store.close();
+
+    const before = await runQuery({
+      cwd: dir,
+      query: 'ranker cap joint priors',
+      budget: 2000,
+      candidates: 30,
+      noVector: true,
+      json: true,
+      asOf: '2026-01-01T00:00:00Z',
+    });
+    expect(before).toBe(0);
+    expect(JSON.parse(stdout.join('')).matched).toBe(0);
+
+    stdout = [];
+    const after = await runQuery({
+      cwd: dir,
+      query: 'ranker cap joint priors',
+      budget: 2000,
+      candidates: 30,
+      noVector: true,
+      json: true,
+      asOf: '2026-12-01T00:00:00Z',
+    });
+    expect(after).toBe(0);
+    expect(JSON.parse(stdout.join('')).packed.some((n: { id: string }) => n.id === 'n1')).toBe(true);
+  });
+
+  it('--as-of prints the cutoff on stderr, but only when set', async () => {
+    seedNode({ id: 'n1', title: 'ranker cap joint priors', body: 'because bounding each prior separately let the pair overturn 4x' });
+
+    await runQuery({ cwd: dir, query: 'ranker cap joint priors', budget: 2000, candidates: 30, noVector: true, json: false });
+    expect(stderr.join('')).not.toContain('as of');
+
+    stderr = [];
+    await runQuery({
+      cwd: dir,
+      query: 'ranker cap joint priors',
+      budget: 2000,
+      candidates: 30,
+      noVector: true,
+      json: false,
+      asOf: '2026-12-01T00:00:00Z',
+    });
+    expect(stripAnsi(stderr.join(''))).toContain('as of');
   });
 });

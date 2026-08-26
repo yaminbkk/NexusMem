@@ -398,13 +398,14 @@ node afterward. `--verify` is a label only; it does not boost ranking. Every nod
 
 ## Commands
 
-`init`, `sync`, `query <text>`, `status` (add `--share` for a plain-text summary worth pasting
-somewhere), `projects`, `mcp`, `forget <value>`, `stale` (add `--check-contradictions` for a local-SLM
-content check, see above), `mark-stale <nodeId> --supersedes <newNodeId>`, `review <nodeId>
---verify|--reject` (record a human verdict on one node, see below), `precheck` (advisory — warns
-about staged files with an unresolved past failure or high recent churn; exits 0 unless `--strict`),
-`hook install|remove|status` (the PowerShell exit-code hook), and `hook git install|remove|status`
-(a git pre-commit hook that runs `precheck` before each commit).
+`init`, `sync`, `query <text>` (add `--as-of <date>` for a bi-temporal read, see below), `status` (add
+`--share` for a plain-text summary worth pasting somewhere), `projects`, `mcp`, `forget <value>`,
+`stale` (add `--check-contradictions` for a local-SLM content check, see above), `mark-stale
+<nodeId> --supersedes <newNodeId>`, `review <nodeId> --verify|--reject` (record a human verdict on
+one node, see above), `precheck` (advisory — warns about staged files with an unresolved past
+failure or high recent churn; exits 0 unless `--strict`), `hook install|remove|status` (the
+PowerShell exit-code hook), and `hook git install|remove|status` (a git pre-commit hook that runs
+`precheck` before each commit).
 
 There are also seven dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`, `scan-session`, `scan-structure`) that write nothing and print what ingestion
@@ -442,6 +443,24 @@ scope   2 project(s): NexusMem, uploader
   +export const RETRY_BUDGET = 5;
 - 2026-08-09 [observed] [NexusMem] fix(git): retry a transient failure to spawn git
 ```
+
+## Bi-temporal reads
+
+Every node carries two clocks: `ts`, the event's own time ("what happened then"), and `created_at`,
+the moment the store actually recorded it ("what did the store hold then") — normally the same
+question, but not when a sync runs late, a backfill lands weeks after the events it describes, or a
+teammate's clone catches up all at once. `query`/`search_memory` answer the first by default;
+`--as-of <date>` switches to the second:
+
+```bash
+nexusmem query "why does the ranker cap joint priors" --as-of 2026-08-10
+```
+
+Only nodes recorded at or before that instant are considered, even if the events they describe are
+older still. There is no equivalent write — this is a read-time filter over `created_at`, not a
+snapshot or a way to query a value that has since changed, since nodes are write-once (see
+[Staleness & provenance](#staleness--provenance) for what changes a node's *weight*, not its
+record).
 
 Databases stay per-repository — there is no shared global store, and deleting one repo's
 `.nexusmem/` still removes exactly that repo's memory. What makes the others findable is a plain

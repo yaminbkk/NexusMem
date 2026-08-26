@@ -464,6 +464,22 @@ describe('MemoryStore.search', () => {
     store.clearProject(PROJECT);
     expect(store.search(PROJECT, 'WAL')).toHaveLength(0);
   });
+
+  it('asOfEpoch excludes a node recorded after the cutoff, even though it happened before -- the bi-temporal read', () => {
+    // Backdate 'wal's created_at ahead of 'auth's and 'chore's: the event
+    // timestamp (`ts`) says nothing about when the store actually learned
+    // about it, and asOfEpoch filters on the latter, not the former.
+    store.raw.prepare('UPDATE nodes SET created_at = 2000 WHERE id = ?').run('wal');
+    store.raw.prepare('UPDATE nodes SET created_at = 1000 WHERE id IN (?, ?)').run('auth', 'chore');
+
+    const asOfBeforeWal = store.search(PROJECT, 'store', 20, { asOfEpoch: 1500 });
+    expect(asOfBeforeWal.map((h) => h.id)).not.toContain('wal');
+
+    const asOfAfterWal = store.search(PROJECT, 'store', 20, { asOfEpoch: 2500 });
+    expect(asOfAfterWal.map((h) => h.id)).toContain('wal');
+
+    expect(store.search(PROJECT, 'store').map((h) => h.id)).toContain('wal'); // omitted entirely -- no filter, same as before this option existed
+  });
 });
 
 describe('MemoryStore node_links', () => {

@@ -90,6 +90,8 @@ export interface HybridQueryOptions {
   halfLifeDays?: number;
   /** `null`/omitted skips vector search entirely -- BM25-only, same behavior as before hybrid retrieval existed. */
   embeddingProvider?: EmbeddingProvider | null;
+  /** Bi-temporal read: only nodes recorded at or before this instant -- see `store/search.ts`'s `SearchOptions.asOfEpoch`. */
+  asOfEpoch?: number;
 }
 
 export interface HybridQueryResult {
@@ -153,9 +155,9 @@ export async function runCrossProjectQuery(
   for (const source of sources) {
     const label = (hit: SearchHit): SearchHit => ({ ...hit, project: source.label });
 
-    const bm25Hits = source.store.search(source.projectId, query, opts.candidates).map(label);
+    const bm25Hits = source.store.search(source.projectId, query, opts.candidates, { asOfEpoch: opts.asOfEpoch }).map(label);
     const vectorHits = queryVector
-      ? source.store.vectorSearch(source.projectId, queryVector, opts.candidates)
+      ? source.store.vectorSearch(source.projectId, queryVector, opts.candidates, { asOfEpoch: opts.asOfEpoch })
       : [];
 
     bm25Count += bm25Hits.length;
@@ -194,12 +196,12 @@ export async function runHybridQuery(
   query: string,
   opts: HybridQueryOptions,
 ): Promise<HybridQueryResult> {
-  const bm25Hits = store.search(projectId, query, opts.candidates);
+  const bm25Hits = store.search(projectId, query, opts.candidates, { asOfEpoch: opts.asOfEpoch });
 
   let vectorHits: VectorHit[] = [];
   if (opts.embeddingProvider) {
     const queryVector = await opts.embeddingProvider.embed(query);
-    if (queryVector) vectorHits = store.vectorSearch(projectId, queryVector, opts.candidates);
+    if (queryVector) vectorHits = store.vectorSearch(projectId, queryVector, opts.candidates, { asOfEpoch: opts.asOfEpoch });
   }
 
   const hits = vectorHits.length > 0 ? mergeSearchAndVectorHits(bm25Hits, vectorHits) : bm25Hits;
