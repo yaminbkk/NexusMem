@@ -1,5 +1,5 @@
 import type { Database } from 'better-sqlite3';
-import { defaultProvenanceForKind, type MemoryNode, type NodeKind, type Provenance } from '../core/types.js';
+import { defaultProvenanceForKind, type MemoryNode, type NodeKind, type Provenance, type TrustState } from '../core/types.js';
 import { firstMatchingEntry, listDenyListEntries, type DenyListEntry } from './deny-list.js';
 
 export interface IngestStats {
@@ -20,6 +20,7 @@ export interface LinkedNode {
   body: string;
   signal: number;
   provenance: Provenance;
+  trustState: TrustState;
 }
 
 /** Enough of a node to list it, without the `node_files`/`meta`/body a full `MemoryNode` carries. */
@@ -177,7 +178,7 @@ export function getNodesByIds(db: Database, ids: readonly string[]): LinkedNode[
   if (ids.length === 0) return [];
   return db
     .prepare(
-      `SELECT id, kind, project_id AS projectId, ts, title, body, signal, provenance
+      `SELECT id, kind, project_id AS projectId, ts, title, body, signal, provenance, trust_state AS trustState
        FROM nodes WHERE id IN (SELECT value FROM json_each(?))`,
     )
     .all(JSON.stringify(ids)) as LinkedNode[];
@@ -282,6 +283,11 @@ export function getSupersededIds(db: Database, projectId: string): Set<string> {
 /** Record that `newNodeId` supersedes `staleNodeId` -- the write behind `nexusmem mark-stale`. Caller validates both ids first. */
 export function setSupersedes(db: Database, newNodeId: string, staleNodeId: string): void {
   db.prepare('UPDATE nodes SET supersedes = ? WHERE id = ?').run(staleNodeId, newNodeId);
+}
+
+/** Record a human's verdict on one node -- the write behind `nexusmem review`. Caller validates project ownership first. Returns whether a row actually matched. */
+export function setTrustState(db: Database, nodeId: string, state: 'verified' | 'rejected'): boolean {
+  return db.prepare('UPDATE nodes SET trust_state = ? WHERE id = ?').run(state, nodeId).changes > 0;
 }
 
 /** A non-`observed` node old enough to be a candidate for `nexusmem mark-stale`, oldest first. */

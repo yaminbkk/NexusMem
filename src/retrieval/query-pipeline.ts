@@ -68,6 +68,7 @@ function pullLinkedResolutions(
           body: resolution.body,
           signal: resolution.signal,
           provenance: resolution.provenance,
+          trustState: resolution.trustState,
           rank: 0, // no bm25/vector rank of its own -- never read again past this point
           relevance: hit.relevance,
           signalWeight: hit.signalWeight,

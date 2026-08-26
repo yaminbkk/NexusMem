@@ -66,6 +66,9 @@ const HALF_LIFE_RATIO: Record<Provenance, number> = {
 /** Flat down-weight for a superseded node -- not near-zero, since it must stay reachable if it's still the best match. */
 const SUPERSEDED_PENALTY = 0.5;
 
+/** Harsher than SUPERSEDED_PENALTY: a human explicitly rejected this claim, not just a newer node quietly replacing it. Still not zero -- `review` demotes, it doesn't delete. */
+const REJECTED_TRUST_PENALTY = 0.3;
+
 /**
  * How far the *priors*, together, may overturn the *query*.
  *
@@ -170,7 +173,8 @@ export function rankHits(hits: readonly SearchHit[], opts: RankOptions = {}): Ra
     const recencyFactor = RECENCY_FLOOR + (1 - RECENCY_FLOOR) * 2 ** (-ageDays / effectiveHalfLife);
 
     const rawScore = relevance * signalWeight ** SIGNAL_EXPONENT * recencyFactor ** RECENCY_EXPONENT;
-    const score = opts.supersededIds?.has(hit.id) ? rawScore * SUPERSEDED_PENALTY : rawScore;
+    const supersededScore = opts.supersededIds?.has(hit.id) ? rawScore * SUPERSEDED_PENALTY : rawScore;
+    const score = hit.trustState === 'rejected' ? supersededScore * REJECTED_TRUST_PENALTY : supersededScore;
 
     return { ...hit, relevance, signalWeight, ageDays, recencyFactor, score };
   });

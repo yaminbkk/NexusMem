@@ -61,6 +61,7 @@ export function mergeSearchAndVectorHits(bm25Hits: readonly SearchHit[], vectorH
       body: hit.body,
       signal: hit.signal,
       provenance: hit.provenance,
+      trustState: hit.trustState,
       rank: 0,
     });
   }

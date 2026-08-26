@@ -16,6 +16,7 @@ import { runProjects } from './commands/projects.js';
 import { runMcpServer } from '../mcp/server.js';
 import { runPrecheck } from './commands/precheck.js';
 import { runQuery } from './commands/query.js';
+import { ReviewError, runReview } from './commands/review.js';
 import { runScanConversation } from './commands/scan-conversation.js';
 import { runScanDiff } from './commands/scan-diff.js';
 import { runScanDocs } from './commands/scan-docs.js';
@@ -41,7 +42,8 @@ function isExpected(err: unknown): err is Error {
     err instanceof ProfileNotFoundError ||
     err instanceof ForeignGitHookError ||
     err instanceof DenyListError ||
-    err instanceof MarkStaleError
+    err instanceof MarkStaleError ||
+    err instanceof ReviewError
   );
 }
 
@@ -270,6 +272,22 @@ program
         dismiss: options.dismiss,
       }),
     )(),
+  );
+
+program
+  .command('review')
+  .description('Record a human verdict on one node: --verify or --reject (a rejected node is down-weighted in ranking, never deleted)')
+  .argument('<nodeId>', 'id of the node being reviewed')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--verify', 'mark the node verified (label only, no ranking change)', false)
+  .option('--reject', 'mark the node rejected (down-weighted in ranking, still queryable)', false)
+  .action((nodeId: string, options) =>
+    guard(async () => {
+      if (options.verify === options.reject) {
+        throw new ReviewError('pass exactly one of --verify or --reject');
+      }
+      return runReview({ cwd: options.cwd, nodeId, verdict: options.verify ? 'verified' : 'rejected' });
+    })(),
   );
 
 program

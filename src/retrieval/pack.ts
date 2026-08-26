@@ -1,5 +1,5 @@
 import { approxTokens, truncate } from '../core/text.js';
-import type { Provenance } from '../core/types.js';
+import type { Provenance, TrustState } from '../core/types.js';
 import type { RankedHit } from './rank.js';
 
 export interface PackedNode {
@@ -12,6 +12,7 @@ export interface PackedNode {
   summary: string;
   tokens: number;
   provenance: Provenance;
+  trustState: TrustState;
   /** Set only for a cross-project query, where a line's repository is not implied by context. */
   project?: string;
 }
@@ -243,6 +244,7 @@ export function packContext(
       summary,
       tokens,
       provenance: hit.provenance,
+      trustState: hit.trustState,
       ...(hit.project ? { project: hit.project } : {}),
     });
     tokensUsed += tokens;
@@ -265,7 +267,9 @@ export function renderContextBlock(query: string, result: PackResult): string {
     // repositories' conventions read as one contradictory history.
     const project = node.project ? `[${node.project}] ` : '';
     const provenance = `[${node.provenance}] `; // fact vs. inference, one glance
-    lines.push(`- ${node.ts.slice(0, 10)} ${provenance}${project}${node.title}`);
+    // Silent for the overwhelming default ('candidate'): only a reviewed node earns a tag.
+    const trust = node.trustState !== 'candidate' ? `[${node.trustState}] ` : '';
+    lines.push(`- ${node.ts.slice(0, 10)} ${provenance}${trust}${project}${node.title}`);
     if (node.summary && node.summary !== node.title) {
       // A patch is the one body whose line structure *is* the content:
       // flattened onto one line, `-  return a;` and `+  return b;` become an

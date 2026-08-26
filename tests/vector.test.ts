@@ -40,6 +40,7 @@ describe('mergeSearchAndVectorHits', () => {
     body: 'body a',
     signal: 0.5,
     provenance: 'observed' as const,
+    trustState: 'candidate' as const,
     rank: -3,
   };
   const vectorHit = {
@@ -50,6 +51,7 @@ describe('mergeSearchAndVectorHits', () => {
     body: 'body b',
     signal: 0.3,
     provenance: 'observed' as const,
+    trustState: 'candidate' as const,
     distance: 0.1,
   };
 
@@ -76,6 +78,7 @@ describe('rankHits with relevanceScores override', () => {
     body: id,
     signal: 0.5,
     provenance: 'observed' as const,
+    trustState: 'candidate' as const,
     rank: -1, // deliberately identical / meaningless -- relevanceScores should be what decides order
     ...overrides,
   });

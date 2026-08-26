@@ -247,6 +247,18 @@ const V9 = `
 ALTER TABLE contradiction_checks ADD COLUMN dismissed INTEGER NOT NULL DEFAULT 0;
 `;
 
+// `provenance` records where a claim came from (observed/authored/recorded/
+// derived); it says nothing about whether anyone has checked it. `trust_state`
+// is that separate axis -- 'candidate' until a human runs `nexusmem review`,
+// then 'verified' or 'rejected'. Deliberately excluded from upsertNodes' own
+// INSERT columns and its ON CONFLICT SET clause (same rule `supersedes`
+// already follows): a re-sync must never overwrite a human's verdict, and the
+// DEFAULT already gives every new node the right starting value.
+const V10 = `
+ALTER TABLE nodes ADD COLUMN trust_state TEXT NOT NULL DEFAULT 'candidate';
+CREATE INDEX idx_nodes_trust_state ON nodes (project_id, trust_state) WHERE trust_state != 'candidate';
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -263,6 +275,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 7, up: (db) => db.exec(V7) },
   { version: 8, up: (db) => db.exec(V8) },
   { version: 9, up: (db) => db.exec(V9) },
+  { version: 10, up: (db) => db.exec(V10) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

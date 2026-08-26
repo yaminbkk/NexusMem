@@ -145,4 +145,38 @@ describe('migrate (V5 -> V6 provenance backfill against real pre-existing data)'
 
     db.close();
   });
+
+  it('backfills trust_state to candidate on a real, already-populated pre-V10 database (V9 -> V10)', () => {
+    const db = new Database(dbPath);
+    db.pragma('foreign_keys = ON');
+    sqliteVec.load(db);
+
+    for (const m of MIGRATIONS) {
+      if (m.version > 9) continue;
+      db.transaction(() => {
+        m.up(db);
+        db.pragma(`user_version = ${m.version}`);
+      })();
+    }
+    expect(currentSchemaVersion(db)).toBe(9);
+
+    // Pre-V10 shape: no trust_state column exists yet, same as a real
+    // upgrading user's on-disk database.
+    db.prepare(
+      `INSERT INTO nodes (id, kind, project_id, ts, ts_epoch, source, title, body, signal, meta, provenance, created_at)
+       VALUES ('n-a', 'git_commit', 'proj-a', '2026-01-01T00:00:00+00:00', 1, 'git', 't', 'b', 0.5, '{}', 'observed', 1)`,
+    ).run();
+
+    const result = migrate(db);
+    expect(result.from).toBe(9);
+    expect(result.to).toBeGreaterThanOrEqual(10);
+
+    const row = db.prepare('SELECT trust_state AS trustState FROM nodes WHERE id = ?').get('n-a') as { trustState: string };
+    expect(row.trustState).toBe('candidate');
+
+    const indexes = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'nodes'`).all() as Array<{ name: string }>;
+    expect(indexes.map((i) => i.name)).toContain('idx_nodes_trust_state');
+
+    db.close();
+  });
 });

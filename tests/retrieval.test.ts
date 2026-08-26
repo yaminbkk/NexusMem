@@ -18,6 +18,7 @@ function hit(overrides: Partial<SearchHit> & Pick<SearchHit, 'id'>): SearchHit {
     body: 'feat: something\n\nmore detail',
     signal: 0.5,
     provenance: 'observed',
+    trustState: 'candidate',
     rank: -2,
     ...overrides,
   };
@@ -112,6 +113,35 @@ describe('rankHits — supersededIds down-weight (mark-stale)', () => {
     const withoutOpt = rankHits([hit({ id: 'a', rank: -3 })], { now: NOW });
     const withEmptySet = rankHits([hit({ id: 'a', rank: -3 })], { now: NOW, supersededIds: new Set() });
     expect(withEmptySet[0]!.score).toBe(withoutOpt[0]!.score);
+  });
+});
+
+describe('rankHits — trust_state rejected down-weight (review)', () => {
+  it('ranks a rejected node below a candidate node, all else equal', () => {
+    const ranked = rankHits(
+      [hit({ id: 'rejected', rank: -3, trustState: 'rejected' }), hit({ id: 'candidate', rank: -3, trustState: 'candidate' })],
+      { now: NOW },
+    );
+    expect(ranked[0]!.id).toBe('candidate');
+    expect(ranked[0]!.score).toBeGreaterThan(ranked[1]!.score);
+  });
+
+  it('never removes a rejected node from the results -- review demotes, it does not delete', () => {
+    const ranked = rankHits([hit({ id: 'rejected', rank: -3, trustState: 'rejected' })], { now: NOW });
+    expect(ranked).toHaveLength(1);
+    expect(ranked[0]!.score).toBeGreaterThan(0);
+  });
+
+  it('gives verified no ranking boost over candidate -- a label, not a prior', () => {
+    const verified = rankHits([hit({ id: 'a', rank: -3, trustState: 'verified' })], { now: NOW });
+    const candidate = rankHits([hit({ id: 'a', rank: -3, trustState: 'candidate' })], { now: NOW });
+    expect(verified[0]!.score).toBe(candidate[0]!.score);
+  });
+
+  it('stacks with the supersededIds penalty rather than replacing it', () => {
+    const both = rankHits([hit({ id: 'x', rank: -3, trustState: 'rejected' })], { now: NOW, supersededIds: new Set(['x']) });
+    const rejectedOnly = rankHits([hit({ id: 'x', rank: -3, trustState: 'rejected' })], { now: NOW });
+    expect(both[0]!.score).toBeLessThan(rejectedOnly[0]!.score);
   });
 });
 
@@ -351,6 +381,16 @@ describe('renderContextBlock', () => {
     const block = renderContextBlock('q', packContext([observed, derived], 2000));
     expect(block).toContain('[observed]');
     expect(block).toContain('[derived]');
+  });
+
+  it('tags a reviewed node with its trust_state verdict, but stays silent for the untouched default', () => {
+    const candidate = ranked({ id: 'a', title: 'never reviewed', trustState: 'candidate' });
+    const rejected = ranked({ id: 'b', title: 'human said no', trustState: 'rejected' });
+    const verified = ranked({ id: 'c', title: 'human said yes', trustState: 'verified' });
+    const block = renderContextBlock('q', packContext([candidate, rejected, verified], 2000));
+    expect(block).not.toContain('[candidate]');
+    expect(block).toContain('[rejected]');
+    expect(block).toContain('[verified]');
   });
 });
 

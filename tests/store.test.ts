@@ -214,6 +214,43 @@ describe('MemoryStore supersedes (mark-stale)', () => {
   });
 });
 
+describe('MemoryStore trust_state (review)', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('defaults every new node to candidate', () => {
+    store.upsertNodes([node({ id: 'a' })]);
+    expect(store.search(PROJECT, 'something')[0]?.trustState).toBe('candidate');
+  });
+
+  it('setTrustState records the verdict and reports whether a row actually matched', () => {
+    store.upsertNodes([node({ id: 'a' })]);
+    expect(store.setTrustState('a', 'rejected')).toBe(true);
+    expect(store.search(PROJECT, 'something')[0]?.trustState).toBe('rejected');
+    expect(store.setTrustState('does-not-exist', 'verified')).toBe(false);
+  });
+
+  it('a re-sync of unchanged content never touches a manually-set trust_state, same rule as supersedes', () => {
+    const doomed = node({ id: 'a', body: 'unchanged content' });
+    store.upsertNodes([doomed]);
+    store.setTrustState('a', 'rejected');
+
+    store.upsertNodes([doomed]); // identical content -- hits the "unchanged" skip in upsertNodes
+
+    expect(store.search(PROJECT, 'unchanged')[0]?.trustState).toBe('rejected');
+  });
+});
+
 describe('MemoryStore.listStaleCandidates', () => {
   let dir: string;
   let store: MemoryStore;

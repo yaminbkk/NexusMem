@@ -22,6 +22,15 @@ export type NodeKind =
  */
 export type Provenance = 'observed' | 'authored' | 'recorded' | 'derived';
 
+/**
+ * Whether a human has checked a claim -- the axis `provenance` deliberately
+ * doesn't cover (source vs. verification are different questions). Every
+ * node starts `candidate`; only `nexusmem review <id> --verify`/`--reject`
+ * moves it, so this is never set by a collector and never touched by a
+ * re-sync (see `upsertNodes`).
+ */
+export type TrustState = 'candidate' | 'verified' | 'rejected';
+
 /** Fallback for nodes written without an explicit `provenance` (older callers, test fixtures). */
 export function defaultProvenanceForKind(kind: NodeKind): Provenance {
   switch (kind) {

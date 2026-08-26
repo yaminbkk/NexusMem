@@ -318,6 +318,21 @@ candidate against nodes *found by embedding similarity*; a contradiction from an
 node would never surface. Comprehensive contradiction detection (not just for the pair the vector
 search happens to surface) is still an open problem, and nothing here supersedes a node on its own.
 
+`provenance` is a separate question from `trust_state`: provenance says where a claim came from,
+never whether anyone checked it.
+
+```bash
+nexusmem review <nodeId> --verify
+nexusmem review <nodeId> --reject
+```
+
+Records your own verdict on one node, independent of the SLM contradiction checker above (which only
+ever writes a suggestion, never a verdict). `--reject` down-weights the node in ranking — same
+demote-not-delete rule as `mark-stale`, it stays queryable, just usually loses to better matches —
+and both verdicts are shown as a `[verified]`/`[rejected]` tag on every query result that returns the
+node afterward. `--verify` is a label only; it does not boost ranking. Every node starts `candidate`
+(untagged) until reviewed, and a re-sync never overwrites a verdict once one is set.
+
 ## Where it breaks
 
 - **Shell history without the hook is unscoped.** Scraped history has no directory context, so it is
@@ -385,10 +400,11 @@ search happens to surface) is still an open problem, and nothing here supersedes
 
 `init`, `sync`, `query <text>`, `status` (add `--share` for a plain-text summary worth pasting
 somewhere), `projects`, `mcp`, `forget <value>`, `stale` (add `--check-contradictions` for a local-SLM
-content check, see above), `mark-stale <nodeId> --supersedes <newNodeId>`, `precheck` (advisory —
-warns about staged files with an unresolved past failure or high recent churn; exits 0 unless
-`--strict`), `hook install|remove|status` (the PowerShell exit-code hook), and
-`hook git install|remove|status` (a git pre-commit hook that runs `precheck` before each commit).
+content check, see above), `mark-stale <nodeId> --supersedes <newNodeId>`, `review <nodeId>
+--verify|--reject` (record a human verdict on one node, see below), `precheck` (advisory — warns
+about staged files with an unresolved past failure or high recent churn; exits 0 unless `--strict`),
+`hook install|remove|status` (the PowerShell exit-code hook), and `hook git install|remove|status`
+(a git pre-commit hook that runs `precheck` before each commit).
 
 There are also seven dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`, `scan-session`, `scan-structure`) that write nothing and print what ingestion

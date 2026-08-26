@@ -29,6 +29,7 @@ import {
   listStaleCandidates,
   pruneSourceNodes,
   setSupersedes,
+  setTrustState,
   upsertNodes,
   type IngestStats,
   type LinkedNode,
@@ -324,6 +325,11 @@ export class MemoryStore {
   /** Record that `newNodeId` supersedes `staleNodeId` -- the write behind `nexusmem mark-stale`. Caller validates both ids first. */
   setSupersedes(newNodeId: string, staleNodeId: string): void {
     setSupersedes(this.db, newNodeId, staleNodeId);
+  }
+
+  /** Record a human's verdict on one node -- the write behind `nexusmem review`. Caller validates project ownership first. */
+  setTrustState(nodeId: string, state: 'verified' | 'rejected'): boolean {
+    return setTrustState(this.db, nodeId, state);
   }
 
   /** Aging non-`observed` nodes nothing supersedes yet -- candidates for `nexusmem mark-stale`, not auto-applied. */
