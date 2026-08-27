@@ -11,6 +11,40 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 No unreleased changes yet.
 
+## [0.9.0] — 2026-08-27
+
+Closes the three remaining mechanisms from a recurring external review (Simon Strandgaard, Agent
+Memory Atlas): trust_state, bi-temporal reads, and a dismiss verb for standing suggestions. Also
+fixes two real Windows-specific correctness bugs found dogfooding.
+
+### Added
+
+- `nodes.trust_state` (`candidate` | `verified` | `rejected`, schema V10) and `nexusmem review
+  <nodeId> --verify|--reject`: a human verdict on a node, independent of the SLM contradiction
+  checker. `--reject` down-weights ranking (harsher than the existing supersede penalty, since a
+  human said no directly); `--verify` is a label only, no ranking boost. Both render as a tag in
+  packed context. Never deletes — same demote-not-delete rule as `mark-stale`.
+- `--as-of <date>` on `nexusmem query` and the MCP `search_memory` tool: restricts both the BM25
+  and vector arms to nodes recorded at or before that instant via `created_at` (record time),
+  independent of how old the events themselves (`ts`, event time) are. Read-only — there is no
+  equivalent write, and nodes stay write-once.
+- `nexusmem stale --dismiss`: silences a contradiction suggestion the user disagrees with, without
+  fabricating a `supersedes` relationship. Previously a wrong `--check-contradictions` verdict had
+  no way to be rejected — it re-decorated every future `stale`/`sync` run forever.
+- `--prune-source`/`--prune-stale-shell` now record a `mutation_audit` row on their `--yes` path,
+  matching what `forget` already did. The dry-run preview stays a pure read.
+
+### Fixed
+
+- `git rev-parse` failures reported as "error launching git: Access is denied." (Git for Windows'
+  launcher shim failing to exec `git.exe` under handle/AV contention) were treated as git's own
+  verdict instead of a transient spawn failure, turning a one-off environment hiccup into a hard
+  failure. Now retried the same as the other known transient-spawn classes.
+- The PowerShell prompt hook read only `$LASTEXITCODE`, which cmdlets (`Remove-Item`, `Copy-Item`,
+  …) never set — every failing cmdlet was silently logged as a success, and a stale
+  `$LASTEXITCODE` from an earlier native command could misattribute to later successful cmdlet
+  runs. Now reads `$?` alongside `$LASTEXITCODE`, before anything else can overwrite `$?`.
+
 ## [0.8.0] — 2026-08-22
 
 ### Added
@@ -504,7 +538,8 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/yaminbkk/NexusMem/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/yaminbkk/NexusMem/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/yaminbkk/NexusMem/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/yaminbkk/NexusMem/compare/v0.5.4...v0.6.0
