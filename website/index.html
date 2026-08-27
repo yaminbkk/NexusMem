@@ -206,8 +206,8 @@ npx nexusmem sync</pre>
         <div class="icon-chip" aria-hidden="true">
           <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.3" stroke-dasharray="2 2.5"/><circle cx="18" cy="18" r="2.3"/><path d="M8.2 7.8l7.6 7.6"/></svg>
         </div>
-        <h3>Provenance &amp; staleness</h3>
-        <p>Every node carries a trust tier — <code>observed</code>, <code>authored</code>, <code>recorded</code>, <code>derived</code> — that decays at its own rate. A local model checks for contradictions automatically on sync and flags what it finds; <code>mark-stale</code> is what actually retires a node.</p>
+        <h3>Provenance, staleness &amp; review</h3>
+        <p>Every node carries a trust tier — <code>observed</code>, <code>authored</code>, <code>recorded</code>, <code>derived</code> — that decays at its own rate. A local model checks for contradictions automatically on sync and flags what it finds, dismissible with <code>stale --dismiss</code> if it's wrong. <code>nexusmem review</code> lets a human verify or reject a node directly, independent of the model.</p>
       </div>
       <div class="card reveal">
         <div class="icon-chip" aria-hidden="true">
@@ -386,7 +386,7 @@ npx nexusmem query "why did the retry fail"</pre>
       <dt>sync</dt>
       <dd>Ingest git, diffs, shell history and docs; embed anything new.</dd>
       <dt>query &lt;text&gt;</dt>
-      <dd>Ranked, token-budgeted context for a question, printed to stdout.</dd>
+      <dd>Ranked, token-budgeted context for a question, printed to stdout. Add <code>--as-of &lt;date&gt;</code> to read what the store held at that point, not what's true now.</dd>
       <dt>status</dt>
       <dd>What's currently remembered, by source.</dd>
       <dt>hook install</dt>
@@ -394,9 +394,11 @@ npx nexusmem query "why did the retry fail"</pre>
       <dt>forget &lt;value&gt;</dt>
       <dd>Delete every node matching a value and deny-list it, so it can't come back.</dd>
       <dt>stale</dt>
-      <dd>List aging nodes and any contradictions a local model has flagged. Add <code>--check-contradictions</code> to check now instead of waiting for the next sync.</dd>
+      <dd>List aging nodes and any contradictions a local model has flagged. Add <code>--check-contradictions</code> to check now, or <code>--dismiss &lt;id&gt;</code> to reject a suggestion that's wrong.</dd>
       <dt>mark-stale &lt;id&gt;</dt>
       <dd>Link a superseded node to its replacement; the ranker down-weights it.</dd>
+      <dt>review &lt;id&gt;</dt>
+      <dd>Record a human verdict — <code>--verify</code> or <code>--reject</code> — independent of the automatic checker.</dd>
       <dt>mcp</dt>
       <dd>Run the MCP server over stdio for an agent to call directly.</dd>
     </dl>
