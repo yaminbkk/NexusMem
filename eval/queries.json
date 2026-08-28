@@ -33,5 +33,221 @@
       "24deb4010a814e353fba5d94"
     ],
     "note": "the real feat(review) commit that added trust_state + review --verify/--reject"
+  },
+  {
+    "id": "q005",
+    "query": "why did node 20 stop being supported",
+    "relevantNodeIds": [
+      "bbde431081e5f8ee35eda637"
+    ],
+    "note": "the real Node-floor-22 fix commit (top hit was an unrelated contradictions.ts diff -- a real ranker miss worth tracking)"
+  },
+  {
+    "id": "q006",
+    "query": "npm stripped the dot slash from the bin path",
+    "relevantNodeIds": [
+      "e1afea5bfec1f54b14858ec8",
+      "097225d493f7f1550859b347"
+    ],
+    "note": "the real npm bin-path fix commit + its package.json diff"
+  },
+  {
+    "id": "q007",
+    "query": "cli version not read from package.json",
+    "relevantNodeIds": [
+      "f171d4db1df1c2f41d7c169a",
+      "80850534940e35be33abcb38"
+    ],
+    "note": "the real --version-from-package.json fix commit + core/version.ts diff"
+  },
+  {
+    "id": "q008",
+    "query": "conversation chunking below whole exchange granularity",
+    "relevantNodeIds": [
+      "40f085e5939bc395073bbfa9",
+      "ebe1cc6468d5e2a8ac6411dd"
+    ],
+    "note": "the real conversation-chunking fix commit + the chunk.ts diff"
+  },
+  {
+    "id": "q009",
+    "query": "generic token id outranking real search matches",
+    "relevantNodeIds": [
+      "d56f88e96cb075f28645ed3f",
+      "ae8b76c87bacf86efd2f9dc6"
+    ],
+    "note": "the real fts.ts stopword fix commit + its diff"
+  },
+  {
+    "id": "q010",
+    "query": "capping duplicate chunks of the same document in one result",
+    "relevantNodeIds": [
+      "c2ea60ca86488205a2db2bf3",
+      "ee385b2fff78ba16244dbe27"
+    ],
+    "note": "the real sibling-cap fix commit + the pack.ts diff"
+  },
+  {
+    "id": "q011",
+    "query": "sync rebuild destroying data reconciliation",
+    "relevantNodeIds": [
+      "b4b82119fe01f9450e56f216",
+      "d78ed91cbb418895cf716138"
+    ],
+    "note": "the real --rebuild-vs-reconcile fix commit + its sync.ts diff"
+  },
+  {
+    "id": "q012",
+    "query": "discussion bridge heuristic linking unrelated failures",
+    "relevantNodeIds": [
+      "795631afed36bdabac659e68",
+      "1ff0be5d6b5b18f767c65516"
+    ],
+    "note": "the real strict-token-match fix commit + failure-fix.ts diff"
+  },
+  {
+    "id": "q013",
+    "query": "stale project identity after a github rename",
+    "relevantNodeIds": [
+      "2dcae0c16c76a805f32d2439"
+    ],
+    "note": "the real reconcile-stranded-memory fix commit (top hit was a CHANGELOG chunk for a related-but-different later feature -- a real ranker miss worth tracking)"
+  },
+  {
+    "id": "q014",
+    "query": "js ts import graph file edges table",
+    "relevantNodeIds": [
+      "612619587d47fec3d2158b8c",
+      "c117aba1b1a59d74914d2129",
+      "28772a5e7551cbf7f7109f8b"
+    ],
+    "note": "the real file_edges commit + its schema.ts and store.ts diffs"
+  },
+  {
+    "id": "q015",
+    "query": "deny list checked before inserting a node",
+    "relevantNodeIds": [
+      "057c0037a32b4d5b2049e02d",
+      "699317a6538c1e420b7787db"
+    ],
+    "note": "the real upsertNodes-consults-deny-list commit + its store.ts diff"
+  },
+  {
+    "id": "q016",
+    "query": "NUL byte in forget preview grouping key",
+    "relevantNodeIds": [
+      "d2e3cfd5cfaefabfcc5170d6",
+      "6995121ec0409b18de6277f7"
+    ],
+    "note": "the real raw-NUL-byte fix commit + its store.ts diff"
+  },
+  {
+    "id": "q017",
+    "query": "forget export import carries deny list across a clone",
+    "relevantNodeIds": [
+      "aa91c4db315e17575b7520cb",
+      "371eb38a1fe114ada47ecaa3"
+    ],
+    "note": "the real forget --export/--import commit + its deny-list.ts diff"
+  },
+  {
+    "id": "q018",
+    "query": "decay inferred nodes faster than observed ones",
+    "relevantNodeIds": [
+      "513716a2cb0655a0dc34f7d7",
+      "7cb53a35dc8733756fbf6cc6"
+    ],
+    "note": "the real inferred-half-life commit + its rank.ts diff"
+  },
+  {
+    "id": "q019",
+    "query": "python relative imports in the code graph",
+    "relevantNodeIds": [
+      "a43409bc58009fc0c7fcfd86",
+      "5cf30e353249367c5260b3dc",
+      "2d555a3938a4f2b7cd2bd7ff"
+    ],
+    "note": "the real Python-relative-import commit + resolve-python.ts and extract-python.ts diffs"
+  },
+  {
+    "id": "q020",
+    "query": "java wildcard import merges two unrelated packages",
+    "relevantNodeIds": [
+      "09648ef20486b513b2dbe955",
+      "d69eeedffca5402c61ac62b6"
+    ],
+    "note": "the real Java wildcard-ambiguity fix commit + its resolve-java.ts diff"
+  },
+  {
+    "id": "q021",
+    "query": "bare python imports resolved to same directory siblings",
+    "relevantNodeIds": [
+      "d02a1338cdad46fb01abb0d7",
+      "671e682c5461c0c2dfae7f83",
+      "72355a212b2dace5e1469a90"
+    ],
+    "note": "the real bare-import resolution commit + resolve-python.ts and extract-python.ts diffs"
+  },
+  {
+    "id": "q022",
+    "query": "contradiction judgments memoized so a pair is never re-judged",
+    "relevantNodeIds": [
+      "0bc9ac6b0b9975582fc7c0bb",
+      "98031b5cb441f0145b17d68c"
+    ],
+    "note": "the real memoize-judgments commit + its contradiction.ts diff (two other commits about the schema table and the earlier SLM prompt work are related but distinct)"
+  },
+  {
+    "id": "q023",
+    "query": "expose search_memory context block in structuredContent for mcp clients",
+    "relevantNodeIds": [
+      "093b70813c749d146a1cb0ed",
+      "15babfb1d9a5aa0fe2f8a15f"
+    ],
+    "note": "the real structuredContent fix commit + its server.ts diff"
+  },
+  {
+    "id": "q024",
+    "query": "vscode extension sidebar for recent memory",
+    "relevantNodeIds": [
+      "b4aae6d68e5b04615f3a4b21",
+      "f65df9a1390a8fb46ddb70ba"
+    ],
+    "note": "the real sidebar-view commit + its recentMemoryView.ts diff"
+  },
+  {
+    "id": "q025",
+    "query": "phase 2 conversation collector and hybrid vector search",
+    "relevantNodeIds": [
+      "7b7eb28afe113ee5d2fc4016",
+      "454063f541c53315872053ad"
+    ],
+    "note": "the real Phase 2 commit + its collectors/conversation.ts diff"
+  },
+  {
+    "id": "q026",
+    "query": "reject role preamble titles the session summary model writes",
+    "relevantNodeIds": [
+      "de0eab6c446c0cfbdbeb50ae",
+      "671d15c94a5f1e7670219d5a"
+    ],
+    "note": "the real session-title-rejection fix commit + its slm/summarize.ts diff"
+  },
+  {
+    "id": "q027",
+    "query": "ตอนนี้ nexusMem ทำอะไรอยู่ใน project เรา dog fooding รึยัง",
+    "relevantNodeIds": [
+      "4b94f326ae59c7be53246afd"
+    ],
+    "note": "real historical conversation question, verbatim from this project's own transcripts -- exact-match sanity check"
+  },
+  {
+    "id": "q028",
+    "query": "เช็คว่า openclaw.ai คำสั่งนั้นคืออะไร เคยรันเองไหม",
+    "relevantNodeIds": [
+      "866e93776e7bafe93ec8df84",
+      "3a6ad5f69c2999f85834a967"
+    ],
+    "note": "real historical conversation question, verbatim -- two chunks of the same original exchange"
   }
 ]
