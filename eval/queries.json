@@ -1,0 +1,37 @@
+[
+  {
+    "id": "q001",
+    "query": "windows spawn failure",
+    "relevantNodeIds": [
+      "5290e5a7a79646cf19309f80",
+      "237c861289b1f090bda58f97",
+      "9e8f3dddd12ae8d1e766e0bd"
+    ],
+    "note": "the real git-spawn-retry fix commits (not the code_diff duplicates or passing README mentions)"
+  },
+  {
+    "id": "q002",
+    "query": "why does the ranker cap joint priors",
+    "relevantNodeIds": [
+      "29430c3cf5283e169f811e84",
+      "99a124bbb3555768eecf1383"
+    ],
+    "note": "the two real rank.ts fix commits: joint budget + stop priors outvoting relevance"
+  },
+  {
+    "id": "q003",
+    "query": "powershell exit code hook bug",
+    "relevantNodeIds": [
+      "b463dcf3450ed34a287b8b45"
+    ],
+    "note": "the real PowerShell $LASTEXITCODE vs $? fix commit"
+  },
+  {
+    "id": "q004",
+    "query": "review command verify reject trust state",
+    "relevantNodeIds": [
+      "24deb4010a814e353fba5d94"
+    ],
+    "note": "the real feat(review) commit that added trust_state + review --verify/--reject"
+  }
+]

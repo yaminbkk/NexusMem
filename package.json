@@ -32,6 +32,7 @@
     "test:watch": "vitest",
     "smoke": "tsx scripts/smoke-package.ts",
     "bench": "tsx scripts/benchmark.ts",
+    "eval": "tsx scripts/eval.ts",
     "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {

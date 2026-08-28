@@ -36,6 +36,11 @@ ROADMAP.local.md
 # summary numbers committed into README.md.
 /bench/results/
 
+# Raw per-run eval output (scripts/eval.ts) -- machine-dependent; the
+# reproducible artifact is the script plus eval/queries.json, which IS
+# tracked (it's the ground truth, not a run result).
+/eval/results/
+
 # Editor / OS cruft. Anchored to the repo root: vscode-extension/.vscode/
 # holds real, committed debug config (launch.json) for developing the
 # extension itself, not personal editor settings.
