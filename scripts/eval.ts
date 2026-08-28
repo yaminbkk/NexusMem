@@ -77,10 +77,11 @@ async function labelQuery(
   idArg: string | null,
   noteArg: string | null,
 ): Promise<void> {
-  const { packed } = await runHybridQuery(store, projectId, query, { budget, candidates, embeddingProvider });
+  const trimmedQuery = query.trim();
+  const { packed } = await runHybridQuery(store, projectId, trimmedQuery, { budget, candidates, embeddingProvider });
   const preview = packed.nodes.slice(0, PREVIEW_COUNT);
 
-  console.log(`Query: "${query}"`);
+  console.log(`Query: "${trimmedQuery}"`);
   if (preview.length === 0) {
     console.log('  (no candidates -- nothing to label)');
     return;
@@ -91,53 +92,73 @@ async function labelQuery(
     );
   });
 
-  let pickInput = pick;
-  if (pickInput === null) {
-    const rl = createInterface({ input: process.stdin, output: process.stdout });
-    pickInput = (await rl.question('Enter numbers of correct answers (comma-separated), or blank to cancel: ')).trim();
-    if (pickInput.length === 0) {
-      rl.close();
-      console.log('cancelled, nothing saved.');
+  // A second sequential `question()` call never resolves once stdin is piped (non-TTY):
+  // readline emits 'line' for every buffered line as soon as it arrives, not lazily per
+  // `question()` call, so a line that arrives before its `question()` runs is lost with no
+  // listener to catch it -- reproduced in isolation with plain readline, two calls in a row.
+  // Iterating the interface's own async iterator pulls buffered lines correctly instead.
+  const rl = pick === null ? createInterface({ input: process.stdin, output: process.stdout }) : null;
+  const lines = rl?.[Symbol.asyncIterator]();
+  async function ask(prompt: string): Promise<string> {
+    process.stdout.write(prompt);
+    const { value, done } = await lines!.next();
+    return done ? '' : value.trim();
+  }
+
+  try {
+    let pickInput = pick;
+    if (pickInput === null) {
+      pickInput = await ask('Enter numbers of correct answers (comma-separated), or blank to cancel: ');
+      if (pickInput.length === 0) {
+        console.log('cancelled, nothing saved.');
+        return;
+      }
+    }
+
+    const indices = [
+      ...new Set(
+        pickInput
+          .split(',')
+          .map((s) => Number.parseInt(s.trim(), 10))
+          .filter((n) => Number.isInteger(n) && n >= 1 && n <= preview.length),
+      ),
+    ];
+    if (indices.length === 0) {
+      console.log('no valid numbers parsed, nothing saved.');
       return;
     }
-    rl.close();
+    const pickedIds = indices.map((i) => preview[i - 1]!.id);
+
+    const queries = loadQueries(queriesPath);
+    const existing = queries.find((q) => q.query === trimmedQuery);
+    const note = noteArg ?? (rl ? await promptNote(ask) : null);
+
+    if (existing) {
+      existing.relevantNodeIds = [...new Set([...existing.relevantNodeIds, ...pickedIds])];
+      if (note) existing.note = note;
+      saveQueries(queriesPath, queries);
+      console.log(`merged ${pickedIds.length} id(s) into existing case "${existing.id}".`);
+      return;
+    }
+
+    const id = idArg ?? nextId(queries);
+    if (queries.some((q) => q.id === id)) {
+      console.log(`id "${id}" is already used by another case -- pick a different --id.`);
+      return;
+    }
+
+    const entry: QueryCase = { id, query: trimmedQuery, relevantNodeIds: pickedIds };
+    if (note) entry.note = note;
+
+    saveQueries(queriesPath, [...queries, entry]);
+    console.log(`saved case "${entry.id}" with ${pickedIds.length} relevant id(s) to ${queriesPath}.`);
+  } finally {
+    rl?.close();
   }
-
-  const indices = pickInput
-    .split(',')
-    .map((s) => Number.parseInt(s.trim(), 10))
-    .filter((n) => Number.isInteger(n) && n >= 1 && n <= preview.length);
-  if (indices.length === 0) {
-    console.log('no valid numbers parsed, nothing saved.');
-    return;
-  }
-  const pickedIds = indices.map((i) => preview[i - 1]!.id);
-
-  const queries = loadQueries(queriesPath);
-  const existing = queries.find((q) => q.query === query);
-  if (existing) {
-    existing.relevantNodeIds = [...new Set([...existing.relevantNodeIds, ...pickedIds])];
-    saveQueries(queriesPath, queries);
-    console.log(`merged ${pickedIds.length} id(s) into existing case "${existing.id}".`);
-    return;
-  }
-
-  const entry: QueryCase = {
-    id: idArg ?? nextId(queries),
-    query,
-    relevantNodeIds: pickedIds,
-  };
-  const note = noteArg ?? (pick === null ? await promptNote() : null);
-  if (note) entry.note = note;
-
-  saveQueries(queriesPath, [...queries, entry]);
-  console.log(`saved case "${entry.id}" with ${pickedIds.length} relevant id(s) to ${queriesPath}.`);
 }
 
-async function promptNote(): Promise<string | null> {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  const note = (await rl.question('Optional note (blank to skip): ')).trim();
-  rl.close();
+async function promptNote(ask: (prompt: string) => Promise<string>): Promise<string | null> {
+  const note = await ask('Optional note (blank to skip): ');
   return note.length > 0 ? note : null;
 }
 
