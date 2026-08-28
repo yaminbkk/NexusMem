@@ -109,9 +109,10 @@
     "id": "q013",
     "query": "stale project identity after a github rename",
     "relevantNodeIds": [
-      "2dcae0c16c76a805f32d2439"
+      "2dcae0c16c76a805f32d2439",
+      "0f476a5e29649b6ef0c3859f"
     ],
-    "note": "the real reconcile-stranded-memory fix commit (top hit was a CHANGELOG chunk for a related-but-different later feature -- a real ranker miss worth tracking)"
+    "note": "two real, distinct commits genuinely both answer this: the reconcile-stranded-memory fix (the actual repair) and the later warn-about-stale-identities feature (the detector) -- widened after diagnosing the original single-answer case with raw BM25/vector hits and concluding it was a real content ambiguity, not a ranker bug (both commits legitimately use \"stale project identity\")"
   },
   {
     "id": "q014",
