@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { collectGithubThreads, scoreGithubThread, toMemoryNode } from '../src/collectors/github.js';
 import type { RawGithubThread } from '../src/github/types.js';
+import { parseGithubSlug } from '../src/github/read.js';
 
 const thread = (overrides: Partial<RawGithubThread> = {}): RawGithubThread => ({
   number: 8,
@@ -129,5 +130,27 @@ describe('collectGithubThreads', () => {
   it('flattens one node per thread', () => {
     const nodes = collectGithubThreads([thread({ number: 1 }), thread({ number: 2, type: 'pull_request' })], 'proj1');
     expect(nodes.map((n) => n.meta.number)).toEqual([1, 2]);
+  });
+});
+
+describe('parseGithubSlug', () => {
+  it('parses an https remote', () => {
+    expect(parseGithubSlug('https://github.com/yaminbkk/NexusMem.git')).toBe('yaminbkk/NexusMem');
+  });
+
+  it('parses an https remote with no .git suffix', () => {
+    expect(parseGithubSlug('https://github.com/yaminbkk/NexusMem')).toBe('yaminbkk/NexusMem');
+  });
+
+  it('parses an ssh remote', () => {
+    expect(parseGithubSlug('git@github.com:yaminbkk/NexusMem.git')).toBe('yaminbkk/NexusMem');
+  });
+
+  it('returns null for a non-github remote', () => {
+    expect(parseGithubSlug('https://gitlab.com/someone/somewhere.git')).toBeNull();
+  });
+
+  it('returns null when there is no remote at all', () => {
+    expect(parseGithubSlug(null)).toBeNull();
   });
 });
