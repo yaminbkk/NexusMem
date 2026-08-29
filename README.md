@@ -23,7 +23,8 @@ exists nowhere else, and it disappears when your terminal scrollback rolls over.
 
 **Contents:** [Try it](#try-it) · [Exact shell capture](#optional-exact-shell-capture) ·
 [Failure → fix chains](#failure--fix-chains-opt-in) · [How retrieval works](#how-retrieval-works) ·
-[Session summaries](#session-summaries-optional-local-model) · [Use it from an agent](#use-it-from-an-agent)
+[Session summaries](#session-summaries-optional-local-model) ·
+[GitHub issues & PRs](#github-issues--prs-optional) · [Use it from an agent](#use-it-from-an-agent)
 · [What it costs you](#what-it-costs-you) · [Staleness & provenance](#staleness--provenance) ·
 [Where it breaks](#where-it-breaks) · [Commands](#commands) · [Cross-project recall](#recall-across-projects)
 · [On disk](#on-disk) · [Development](#development)
