@@ -1,3 +1,5 @@
+import type { RawGithubComment, RawGithubThread } from './types.js';
+
 /**
  * `gh` isn't installed, isn't authenticated, or the call otherwise failed --
  * distinct from a real defect in this project's own code, and always
@@ -42,4 +44,33 @@ export function parseGithubSlug(originUrl: string | null): string | null {
   const match = originUrl.match(/github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/i);
   if (!match) return null;
   return `${match[1]}/${match[2]}`;
+}
+
+export interface GithubProvider {
+  /**
+   * Issues and PRs updated at or after `since` (inclusive), newest-updated
+   * first, each with its full comment thread attached. `since === null` means
+   * every thread, bounded by `maxThreads`.
+   */
+  listThreads(since: string | null): Promise<RawGithubThread[]>;
+}
+
+interface GhIssueItem {
+  number: number;
+  title: string;
+  body: string | null;
+  user: { login: string } | null;
+  state: 'open' | 'closed';
+  labels: Array<{ name: string } | string>;
+  created_at: string;
+  updated_at: string;
+  html_url: string;
+  comments: number;
+  pull_request?: { merged_at: string | null };
+}
+
+interface GhCommentItem {
+  user: { login: string } | null;
+  body: string | null;
+  created_at: string;
 }
