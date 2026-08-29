@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { scoreGithubThread, toMemoryNode } from '../src/collectors/github.js';
+import { collectGithubThreads, scoreGithubThread, toMemoryNode } from '../src/collectors/github.js';
 import type { RawGithubThread } from '../src/github/types.js';
 
 const thread = (overrides: Partial<RawGithubThread> = {}): RawGithubThread => ({
@@ -122,5 +122,12 @@ describe('toMemoryNode', () => {
   it('uses updatedAt as ts, not createdAt -- ranking recency reflects the latest activity', () => {
     const node = toMemoryNode(thread(), 'proj1');
     expect(node.ts).toBe('2026-08-29T11:58:35.000Z');
+  });
+});
+
+describe('collectGithubThreads', () => {
+  it('flattens one node per thread', () => {
+    const nodes = collectGithubThreads([thread({ number: 1 }), thread({ number: 2, type: 'pull_request' })], 'proj1');
+    expect(nodes.map((n) => n.meta.number)).toEqual([1, 2]);
   });
 });
