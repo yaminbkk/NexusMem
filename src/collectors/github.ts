@@ -1,3 +1,4 @@
+import { truncate } from '../core/text.js';
 import type { RawGithubThread } from '../github/types.js';
 
 /**
@@ -35,4 +36,22 @@ export function scoreGithubThread(thread: RawGithubThread): number {
   if (thread.labels.some((l) => NOTABLE_LABELS.test(l))) score += 0.1;
 
   return Number(Math.min(1, Math.max(0.05, score)).toFixed(3));
+}
+
+const MAX_TITLE_CHARS = 200;
+
+function threadTitle(thread: RawGithubThread): string {
+  const prefix = thread.type === 'pull_request' ? 'PR' : 'Issue';
+  return truncate(`${prefix} #${thread.number}: ${thread.title}`, MAX_TITLE_CHARS);
+}
+
+function renderBody(thread: RawGithubThread): string {
+  const status = thread.merged ? 'merged' : thread.state;
+  const header = `${thread.title}\nopened by @${thread.author}, ${status}`;
+  const opening = thread.body.trim();
+  const commentsText = thread.comments
+    .map((c) => `--- @${c.author} (${c.createdAt.slice(0, 10)}) ---\n${c.body.trim()}`)
+    .join('\n\n');
+
+  return [header, opening, commentsText].filter(Boolean).join('\n\n');
 }
