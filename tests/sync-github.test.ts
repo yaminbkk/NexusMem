@@ -6,7 +6,7 @@ import { runInit } from '../src/cli/commands/init.js';
 import { runSync } from '../src/cli/commands/sync.js';
 import { readConfig, resolveWorkspace, writeConfig } from '../src/config/workspace.js';
 import { makeProjectId } from '../src/core/project.js';
-import type { GithubProvider } from '../src/github/read.js';
+import { GithubUnavailableError, type GithubProvider } from '../src/github/read.js';
 import type { RawGithubThread } from '../src/github/types.js';
 import { MemoryStore } from '../src/store/store.js';
 import { gitFixture } from './helpers.js';
@@ -176,5 +176,26 @@ describe('sync: github source', () => {
     await runSync(opts);
 
     expect(threadCount()).toBe(1);
+  });
+
+  it('fails soft when gh is unavailable, without breaking the rest of the sync', async () => {
+    const failing: GithubProvider = {
+      listThreads: async () => {
+        throw new GithubUnavailableError('gh CLI is not authenticated -- run `gh auth login`', null);
+      },
+    };
+
+    const code = await runSync({
+      cwd: dir,
+      full: false,
+      rebuild: false,
+      quiet: true,
+      noEmbed: true,
+      githubOverride: true,
+      githubProvider: failing,
+    });
+
+    expect(code).toBe(0);
+    expect(threadCount()).toBe(0);
   });
 });
