@@ -56,9 +56,10 @@
     "query": "cli version not read from package.json",
     "relevantNodeIds": [
       "f171d4db1df1c2f41d7c169a",
-      "80850534940e35be33abcb38"
+      "80850534940e35be33abcb38",
+      "2ebce61a5daae7bc19014952"
     ],
-    "note": "the real --version-from-package.json fix commit + core/version.ts diff"
+    "note": "the real --version-from-package.json fix commit + core/version.ts diff + cli/index.ts diff (the actual `.version('0.1.0') -> .version(readOwnVersion())` call site, confirmed live via `git show` -- widened after diagnosing the rank-2 case and finding it's not a ranker miss but a real, equally-valid sibling diff that was never labeled, same resolution as q013)"
   },
   {
     "id": "q008",
