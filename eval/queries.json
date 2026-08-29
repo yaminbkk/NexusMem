@@ -239,17 +239,17 @@
     "id": "q027",
     "query": "ตอนนี้ nexusMem ทำอะไรอยู่ใน project เรา dog fooding รึยัง",
     "relevantNodeIds": [
-      "4b94f326ae59c7be53246afd"
+      "bb6bdb9bddc278179c56aafe"
     ],
-    "note": "real historical conversation question, verbatim from this project's own transcripts -- exact-match sanity check"
+    "note": "real historical conversation question, verbatim from this project's own transcripts -- exact-match sanity check. Relabeled 2026-08-29: the original id no longer exists -- a sync --full --conversation recovery re-ingested this project's conversation history (the source had been disabled, losing 130 conversation_turn nodes to a --rebuild) and the chunker re-split every exchange under fresh content-addressed ids. Content verified unchanged: same Q, same A, just a new id."
   },
   {
     "id": "q028",
     "query": "เช็คว่า openclaw.ai คำสั่งนั้นคืออะไร เคยรันเองไหม",
     "relevantNodeIds": [
-      "866e93776e7bafe93ec8df84",
-      "3a6ad5f69c2999f85834a967"
+      "9a08ba69b4c09fb200b44721",
+      "2b50f61431e91608a5c8bbc6"
     ],
-    "note": "real historical conversation question, verbatim -- two chunks of the same original exchange"
+    "note": "real historical conversation question, verbatim -- two chunks of the same original exchange. Relabeled 2026-08-29, same reason and same verification as q027."
   }
 ]
