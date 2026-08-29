@@ -94,6 +94,7 @@ program
   .option('--since <date>', 'override the configured git cutoff, e.g. 1.year.ago')
   .option('--shell-lines <count>', 'override the configured shell tail-window size', (v) => Number.parseInt(v, 10))
   .option('--conversation', 'force the conversation source on for this run, without persisting it to config', false)
+  .option('--github', 'force the github issue/PR source on for this run, without persisting it to config', false)
   .option('--no-embed', 'skip the vector-embedding pass for this run')
   .option('--embed-limit <count>', 'stop embedding after this many nodes (default: embed everything pending)', (v) =>
     Number.parseInt(v, 10),
@@ -120,6 +121,7 @@ program
         since: options.since,
         shellTailLines: options.shellLines,
         conversationOverride: options.conversation ? true : undefined,
+        githubOverride: options.github ? true : undefined,
         noEmbed: !options.embed,
         embedLimit: options.embedLimit,
         pruneSource: options.pruneSource,
