@@ -52,6 +52,16 @@ export function isGeneratedPath(path: string): boolean {
 const TEST_PATHS = /(^|\/)(tests?|__tests__|spec|e2e)\/|\.(test|spec)\.[cm]?[jt]sx?$/;
 
 /**
+ * Hand-written but almost always mechanical wiring (a script entry, a
+ * dependency bump, a contribution point) rather than the change someone
+ * asking about a feature actually wants -- the same "not the interesting
+ * content" reasoning as `TEST_PATHS`, just for the opposite reason (nobody
+ * wrote a test *for* the feature; nobody explains the feature *in* the
+ * manifest, they just register it there).
+ */
+const MANIFEST_PATHS = /(^|\/)(package\.json|tsconfig(\..+)?\.json)$/;
+
+/**
  * Prior importance of one file's patch.
  *
  * Anchored on the commit's own type -- a patch inside a `fix:` is worth more
@@ -67,6 +77,7 @@ export function scoreFileDiff(subject: string, file: RawFileDiff): number {
 
   if (header.breaking) score += 0.1;
   if (TEST_PATHS.test(file.path)) score -= 0.1;
+  if (MANIFEST_PATHS.test(file.path)) score -= 0.1;
   if (file.status === 'added') score += 0.05;
   if (file.status === 'deleted') score -= 0.1;
 
