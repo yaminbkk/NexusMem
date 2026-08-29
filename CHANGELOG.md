@@ -9,7 +9,13 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+
+- New opt-in `github` source: `sources.github.enabled`, `nexusmem scan-github`, `sync --github`.
+  Reads issue/PR threads (title, body, comments) from this repo's github.com remote via the `gh`
+  CLI, one `github_thread` node per thread. First source with a real external dependency (needs `gh`
+  installed and authenticated) rather than reading only what's already on disk; a missing remote or
+  an unreachable `gh` is a silent no-op, matching how an unreachable Ollama degrades elsewhere.
 
 ## [0.9.1] — 2026-08-29
 
