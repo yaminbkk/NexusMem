@@ -30,9 +30,10 @@
     "id": "q004",
     "query": "review command verify reject trust state",
     "relevantNodeIds": [
-      "24deb4010a814e353fba5d94"
+      "24deb4010a814e353fba5d94",
+      "88af0c1dd70aa2757a874bb7"
     ],
-    "note": "the real feat(review) commit that added trust_state + review --verify/--reject"
+    "note": "the real feat(review) commit that added trust_state + review --verify/--reject, plus review.ts's diff -- confirmed via git show e117e73 -- src/cli/commands/review.ts to be the actual runReview()/ReviewError/setTrustState implementation, not an incidental sibling. Widened 2026-08-29 after diagnosing rank 3: unlike q024, the title-weight-duplication mechanism (bm25 title 10x, path-prefix repeating the commit's conventional-commit scope) does NOT explain this one -- token counts for review/trust/state/verify/reject/command are roughly comparable or even lower across every code_diff sibling vs. the git_commit's own title. The real driver is body content: the commit message prose only mentions verify/reject a few times descriptively, while review.ts's actual code repeats them as literal option flags/identifiers (--verify, --reject, ReviewError, verdict) -- same category of true content ambiguity as q007/q013, not a ranker defect, and not worth a blanket prefer-git_commit fix since that would wrongly punish diffs that are legitimately the best answer."
   },
   {
     "id": "q005",
