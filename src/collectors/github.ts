@@ -1,4 +1,6 @@
+import { makeNodeId } from '../core/ids.js';
 import { truncate } from '../core/text.js';
+import type { MemoryNode } from '../core/types.js';
 import type { RawGithubThread } from '../github/types.js';
 
 /**
@@ -54,4 +56,39 @@ function renderBody(thread: RawGithubThread): string {
     .join('\n\n');
 
   return [header, opening, commentsText].filter(Boolean).join('\n\n');
+}
+
+export interface GithubCollectorOptions {
+  /** Default 4000, same default as `limits.maxBodyChars` elsewhere. */
+  maxBodyChars?: number;
+}
+
+const DEFAULT_MAX_BODY_CHARS = 4000;
+
+export function toMemoryNode(thread: RawGithubThread, projectId: string, opts: GithubCollectorOptions = {}): MemoryNode {
+  const maxBody = opts.maxBodyChars ?? DEFAULT_MAX_BODY_CHARS;
+  const naturalKey = `${thread.type}:${thread.number}`;
+  const source = thread.type === 'pull_request' ? 'github:pr' : 'github:issue';
+
+  return {
+    id: makeNodeId(projectId, 'github_thread', naturalKey),
+    kind: 'github_thread',
+    projectId,
+    ts: thread.updatedAt,
+    source,
+    title: threadTitle(thread),
+    body: truncate(renderBody(thread), maxBody),
+    files: [],
+    signal: scoreGithubThread(thread),
+    provenance: 'recorded', // verbatim discourse, same tier as conversation_turn
+    meta: {
+      number: thread.number,
+      type: thread.type,
+      state: thread.state,
+      merged: thread.merged,
+      labels: thread.labels,
+      url: thread.url,
+      commentCount: thread.comments.length,
+    },
+  };
 }
