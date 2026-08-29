@@ -162,8 +162,8 @@ export interface SyncProjectResult {
 }
 
 /**
- * Ingests new git/diff/shell/docs (and, if enabled, conversation) history
- * and embeds pending nodes -- the same work `nexusmem sync` does from a
+ * Ingests new git/diff/shell/docs (and, if enabled, conversation and
+ * github.com issue/PR) history and embeds pending nodes -- the same work `nexusmem sync` does from a
  * terminal, just triggered from the editor. `sync_project` has no
  * `structuredContent` (see the root project's src/mcp/server.ts), only a
  * text summary, so this reads `content` directly rather than preferring a

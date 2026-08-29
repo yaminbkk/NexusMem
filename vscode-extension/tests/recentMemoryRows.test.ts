@@ -36,7 +36,7 @@ describe('formatRelativeTime', () => {
 
 describe('iconIdForKind', () => {
   it('maps every known NodeKind to a distinct codicon id', () => {
-    const kinds = ['git_commit', 'shell_command', 'code_diff', 'doc_section', 'conversation_turn', 'session_summary', 'note'];
+    const kinds = ['git_commit', 'shell_command', 'code_diff', 'doc_section', 'conversation_turn', 'session_summary', 'note', 'github_thread'];
     const icons = kinds.map(iconIdForKind);
     expect(new Set(icons).size).toBe(icons.length); // discriminating: catches a copy-pasted duplicate mapping
   });

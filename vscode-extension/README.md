@@ -1,8 +1,9 @@
 # NexusMem for VS Code
 
 Search a [NexusMem](https://github.com/yaminbkk/NexusMem)-tracked repository's remembered history —
-git commits, code diffs, shell commands (with exit codes), tracked docs and (if enabled) conversation
-transcripts — from the command palette, without leaving the editor.
+git commits, code diffs, shell commands (with exit codes), tracked docs, (if enabled) conversation
+transcripts, and (if enabled) github.com issue/PR threads — from the command palette, without leaving
+the editor.
 
 This is an early, minimal surface: a search command, a read-only results panel, a sidebar list of
 what's been remembered lately, a sync command, and a proactive check when a terminal command fails. It
@@ -39,8 +40,9 @@ has failed and later been fixed before, from this repository's own history — s
 ### Sync
 
 **NexusMem: Sync Memory** (command palette, or the ↻-adjacent sync button in the sidebar's title bar)
-ingests new git/diff/shell/docs history and embeds it — the same as running `nexusmem sync` in a
-terminal, without leaving the editor. Initializes the repository first if it hasn't been already. The
+ingests new git/diff/shell/docs (and, if enabled, conversation and github.com issue/PR) history and
+embeds it — the same as running `nexusmem sync` in a terminal, without leaving the editor. Initializes
+the repository first if it hasn't been already. The
 summary goes to the **NexusMem** output channel (a toast offers to open it); the sidebar refreshes
 itself afterward automatically.
 
