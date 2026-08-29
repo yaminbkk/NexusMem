@@ -18,7 +18,7 @@ export function createServer(): McpServer {
     {
       title: 'Search remembered project history',
       description:
-        'Search a NexusMem-tracked repository\'s remembered history: git commits, code diffs (the patch of each changed file), shell commands, tracked markdown docs, and (if enabled) conversation transcripts and per-session summaries. Returns a token-budgeted, ranked context block -- not raw search results.',
+        'Search a NexusMem-tracked repository\'s remembered history: git commits, code diffs (the patch of each changed file), shell commands, tracked markdown docs, and (if enabled) conversation transcripts, per-session summaries, and github.com issue/PR threads. Returns a token-budgeted, ranked context block -- not raw search results.',
       inputSchema: {
         projectRoot: z.string().describe('Absolute path to the repository root'),
         query: z.string().describe('Free-text question or search terms'),
