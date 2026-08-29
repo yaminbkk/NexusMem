@@ -4,6 +4,12 @@ Notable changes to the NexusMem VS Code extension. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.1] — 2026-08-29
+
+No functional changes. `package.json`'s description, `README.md` and a `mcpClient.ts` doc comment
+updated to mention the root project's new (opt-in) `github` issue/PR source, matching NexusMem
+`v0.10.0`; the icon-coverage test's node-kind list was missing the new `github_thread` kind too.
+
 ## [0.1.0] — 2026-08-15
 
 First real version. Every piece of the extension's original MVP plan, built and live-verified against
