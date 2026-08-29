@@ -713,6 +713,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const conversation = syncConversation(store, projectId, turns, config, log, opts.conversationOverride);
     const sessions = await syncSessions(store, projectId, turns, config, log);
     const docs = await syncDocs(store, projectId, repo.root, config, log);
+    const github = await syncGithub(store, projectId, opts, repo, config, log);
     const structure = await syncStructure(store, projectId, repo.root, config, log);
 
     let embedLine = '';
@@ -774,6 +775,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     addStats(totals, conversation.totals);
     addStats(totals, sessions.totals);
     addStats(totals, docs.totals);
+    addStats(totals, github.totals);
 
     const stats = store.stats(projectId);
     const elapsed = ((Date.now() - started) / 1000).toFixed(2);
