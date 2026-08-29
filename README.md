@@ -189,6 +189,26 @@ specific even when it is not elegant. Compliance was worst on long sessions and 
 in English. A larger model (`qwen2.5:7b`) is the lever if the titles matter to you; set
 `sources.session.model`.
 
+## GitHub issues & PRs (optional)
+
+With `sources.github.enabled`, each issue and PR on this repo's github.com remote becomes one node
+(title, opening post and every comment, folded together) alongside the raw discourse a discussion
+already leaves in shell/conversation history. Off by default — not for a sensitivity reason, but
+because it's the first source with a real external dependency: it reads via the `gh` CLI, so it
+needs `gh` installed and authenticated (`gh auth login`), and it makes live network calls instead of
+only reading what's already on disk. A repo with no github.com remote, or an unauthenticated `gh`,
+is a silent no-op either way.
+
+```bash
+nexusmem scan-github
+```
+
+previews the nodes a sync would produce, same as the other `scan-*` commands. `maxThreads` (default
+100) and `maxCommentsPerThread` (default 100) bound one sync's cost; `since` is tracked as its own
+cursor, so a repeat sync only re-reads threads that changed. Dogfooded against this repo's own 14
+real issues/PRs: ingest took under a second, and a query for "labelled retrieval regression corpus"
+correctly ranked issue #8 — the one that asked for it — first.
+
 ## Use it from an agent
 
 ```json
