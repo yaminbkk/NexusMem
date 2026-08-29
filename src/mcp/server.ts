@@ -63,7 +63,7 @@ export function createServer(): McpServer {
     {
       title: 'Sync remembered history',
       description:
-        'Ingest new git, diff, shell, docs and (if enabled) conversation history for a NexusMem-tracked repository into its local database. ' +
+        'Ingest new git, diff, shell, docs and (if enabled) conversation and github.com issue/PR history for a NexusMem-tracked repository into its local database. ' +
         'Pass pruneSource or pruneStaleShell instead to delete a dead source\'s nodes (e.g. the pre-hook shell scrape) rather than syncing -- ' +
         'dry-run unless yes is also true, since this is an irreversible full wipe of that source.',
       inputSchema: {
