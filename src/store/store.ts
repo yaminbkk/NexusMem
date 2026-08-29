@@ -280,8 +280,8 @@ export class MemoryStore {
     return countNodesNeedingEmbedding(this.db, projectId);
   }
 
-  upsertEmbedding(rowid: number, embedding: Float32Array): void {
-    upsertEmbedding(this.db, rowid, embedding);
+  upsertEmbedding(rowid: number, projectId: string, embedding: Float32Array): void {
+    upsertEmbedding(this.db, rowid, projectId, embedding);
   }
 
   /** The stored vector for one node, or null if it has not been embedded yet. */

@@ -238,7 +238,7 @@ describe('reconcileProjectId', () => {
     ]);
 
     const rowid = (store.raw.prepare('SELECT rowid FROM nodes WHERE id = ?').get(oldId) as { rowid: number }).rowid;
-    store.upsertEmbedding(rowid, new Float32Array(EMBEDDING_DIM).fill(0.1));
+    store.upsertEmbedding(rowid, OLD, new Float32Array(EMBEDDING_DIM).fill(0.1));
     expect(store.raw.prepare('SELECT COUNT(*) c FROM nodes_vec').get()).toEqual({ c: 1 });
 
     reconcileProjectId(store.raw, OLD, NEW);

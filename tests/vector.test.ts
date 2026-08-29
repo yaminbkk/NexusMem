@@ -142,8 +142,8 @@ describe('MemoryStore vector search (real sqlite-vec extension)', () => {
     store.upsertNodes([node({ id: 'near' }), node({ id: 'far' })]);
     const [near, far] = store.findNodesNeedingEmbedding(PROJECT);
 
-    store.upsertEmbedding(near!.rowid, new Float32Array(EMBEDDING_DIM).fill(0.1));
-    store.upsertEmbedding(far!.rowid, new Float32Array(EMBEDDING_DIM).fill(0.9));
+    store.upsertEmbedding(near!.rowid, PROJECT, new Float32Array(EMBEDDING_DIM).fill(0.1));
+    store.upsertEmbedding(far!.rowid, PROJECT, new Float32Array(EMBEDDING_DIM).fill(0.9));
 
     const hits = store.vectorSearch(PROJECT, new Float32Array(EMBEDDING_DIM).fill(0.1), 5);
     expect(hits[0]!.id).toBe('near');
@@ -153,15 +153,39 @@ describe('MemoryStore vector search (real sqlite-vec extension)', () => {
   it('does not leak vector hits across projects', () => {
     store.upsertNodes([node({ id: 'a' }), node({ id: 'b', projectId: 'proj-b' })]);
     for (const n of store.findNodesNeedingEmbedding('proj-b')) {
-      store.upsertEmbedding(n.rowid, new Float32Array(EMBEDDING_DIM).fill(0.5));
+      store.upsertEmbedding(n.rowid, 'proj-b', new Float32Array(EMBEDDING_DIM).fill(0.5));
     }
     expect(store.vectorSearch(PROJECT, new Float32Array(EMBEDDING_DIM).fill(0.5))).toHaveLength(0);
+  });
+
+  it('finds a sparse project’s true nearest neighbours even when a much larger project shares the database', () => {
+    // The exact failure `project_id` as a vec0 PARTITION KEY (schema.ts's V11)
+    // exists to prevent: before it, `vectorSearch` over-fetched `k` globally
+    // and filtered afterward, so a small project's real matches could fall
+    // entirely outside that window once another project in the same database
+    // got large enough. Reproduces that shape directly: 200 unrelated
+    // "big-project" nodes all closer to the query vector than any of the 3
+    // real "sparse-project" nodes are to each other.
+    const bigNodes: MemoryNode[] = [];
+    for (let i = 0; i < 200; i++) bigNodes.push(node({ id: `big-${i}`, projectId: 'big-project' }));
+    const sparseNodes = [node({ id: 's0' }), node({ id: 's1' }), node({ id: 's2' })];
+    store.upsertNodes([...bigNodes, ...sparseNodes]);
+
+    for (const n of store.findNodesNeedingEmbedding('big-project')) {
+      store.upsertEmbedding(n.rowid, 'big-project', new Float32Array(EMBEDDING_DIM).fill(1));
+    }
+    for (const [i, n] of store.findNodesNeedingEmbedding(PROJECT).entries()) {
+      store.upsertEmbedding(n.rowid, PROJECT, new Float32Array(EMBEDDING_DIM).fill(0.5 + i * 0.01));
+    }
+
+    const hits = store.vectorSearch(PROJECT, new Float32Array(EMBEDDING_DIM).fill(1), 3);
+    expect(hits.map((h) => h.id).sort()).toEqual(['s0', 's1', 's2']);
   });
 
   it('invalidates a stale embedding when the node content changes', () => {
     store.upsertNodes([node({ id: 'a', body: 'original' })]);
     const [pending] = store.findNodesNeedingEmbedding(PROJECT);
-    store.upsertEmbedding(pending!.rowid, new Float32Array(EMBEDDING_DIM).fill(0.2));
+    store.upsertEmbedding(pending!.rowid, PROJECT, new Float32Array(EMBEDDING_DIM).fill(0.2));
     expect(store.findNodesNeedingEmbedding(PROJECT)).toHaveLength(0);
 
     store.upsertNodes([node({ id: 'a', body: 'changed', signal: 0.9 })]);
@@ -171,7 +195,7 @@ describe('MemoryStore vector search (real sqlite-vec extension)', () => {
   it('removes nodes_vec rows when a project is cleared', () => {
     store.upsertNodes([node({ id: 'a' })]);
     const [pending] = store.findNodesNeedingEmbedding(PROJECT);
-    store.upsertEmbedding(pending!.rowid, new Float32Array(EMBEDDING_DIM).fill(0.4));
+    store.upsertEmbedding(pending!.rowid, PROJECT, new Float32Array(EMBEDDING_DIM).fill(0.4));
 
     store.clearProject(PROJECT);
     const remaining = store.raw.prepare('SELECT COUNT(*) AS n FROM nodes_vec').get() as { n: number };
@@ -182,7 +206,7 @@ describe('MemoryStore vector search (real sqlite-vec extension)', () => {
     store.upsertNodes([node({ id: 'secret', title: 'export API_KEY=sk-vector-leak-test', body: 'export API_KEY=sk-vector-leak-test' })]);
     const [pending] = store.findNodesNeedingEmbedding(PROJECT);
     const queryVector = new Float32Array(EMBEDDING_DIM).fill(0.42);
-    store.upsertEmbedding(pending!.rowid, queryVector);
+    store.upsertEmbedding(pending!.rowid, PROJECT, queryVector);
 
     expect(store.vectorSearch(PROJECT, queryVector, 5).map((h) => h.id)).toContain('secret');
     const vecCountBefore = (store.raw.prepare('SELECT COUNT(*) AS n FROM nodes_vec').get() as { n: number }).n;

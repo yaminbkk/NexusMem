@@ -145,7 +145,7 @@ export async function embedPendingNodes(
       for (const [index, node] of group.entries()) {
         const vector = vectors[index];
         if (vector && vector.length === provider.dimension) {
-          store.upsertEmbedding(node.rowid, vector);
+          store.upsertEmbedding(node.rowid, projectId, vector);
           embedded += 1;
           embeddedHere += 1;
         } else {

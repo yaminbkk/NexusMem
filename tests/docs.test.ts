@@ -248,7 +248,7 @@ describe('docs sync pruning (stale/orphaned sections)', () => {
     syncDocs([file('## Old Heading\n\nThe explanation lives here.')]);
     const [pending] = store.findNodesNeedingEmbedding(PROJECT);
     const vector = new Float32Array(768).fill(0.1);
-    store.upsertEmbedding(pending!.rowid, vector);
+    store.upsertEmbedding(pending!.rowid, PROJECT, vector);
     expect(store.vectorSearch(PROJECT, vector)).toHaveLength(1);
 
     syncDocs([file('## New Heading\n\nThe explanation lives here.')]);

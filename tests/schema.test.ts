@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import * as sqliteVec from 'sqlite-vec';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { currentSchemaVersion, migrate, MIGRATIONS } from '../src/store/schema.js';
+import { currentSchemaVersion, EMBEDDING_DIM, migrate, MIGRATIONS } from '../src/store/schema.js';
 
 /**
  * Every other test reaches schema V6 by opening a brand-new, empty database,
@@ -176,6 +176,57 @@ describe('migrate (V5 -> V6 provenance backfill against real pre-existing data)'
 
     const indexes = db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'nodes'`).all() as Array<{ name: string }>;
     expect(indexes.map((i) => i.name)).toContain('idx_nodes_trust_state');
+
+    db.close();
+  });
+
+  it('rebuilds nodes_vec with a project_id partition key, preserving real embeddings across two projects (V10 -> V11)', () => {
+    const db = new Database(dbPath);
+    db.pragma('foreign_keys = ON');
+    sqliteVec.load(db);
+
+    for (const m of MIGRATIONS) {
+      if (m.version > 10) continue;
+      db.transaction(() => {
+        m.up(db);
+        db.pragma(`user_version = ${m.version}`);
+      })();
+    }
+    expect(currentSchemaVersion(db)).toBe(10);
+
+    // Pre-V11 shape: nodes_vec has no project_id column, same as a real
+    // upgrading user's on-disk database with an already-embedded corpus.
+    const insertNode = db.prepare(`
+      INSERT INTO nodes (id, kind, project_id, ts, ts_epoch, source, title, body, signal, meta, provenance, created_at)
+      VALUES (@id, 'git_commit', @projectId, '2026-01-01T00:00:00+00:00', 1, 'git', 't', 'b', 0.5, '{}', 'observed', 1)
+    `);
+    const insertVec = db.prepare('INSERT INTO nodes_vec (rowid, embedding) VALUES (?, ?)');
+    const vecOf = (fill: number) => new Float32Array(EMBEDDING_DIM).fill(fill);
+
+    insertNode.run({ id: 'a1', projectId: 'proj-a' });
+    const a1 = (db.prepare('SELECT rowid FROM nodes WHERE id = ?').get('a1') as { rowid: number }).rowid;
+    insertVec.run(BigInt(a1), vecOf(0.1));
+
+    insertNode.run({ id: 'b1', projectId: 'proj-b' });
+    const b1 = (db.prepare('SELECT rowid FROM nodes WHERE id = ?').get('b1') as { rowid: number }).rowid;
+    insertVec.run(BigInt(b1), vecOf(0.9));
+
+    const result = migrate(db);
+    expect(result.from).toBe(10);
+    expect(result.to).toBeGreaterThanOrEqual(11);
+
+    // rowid alignment and the embedding bytes both survived the rebuild --
+    // not just the count.
+    const rows = db.prepare('SELECT rowid, project_id AS projectId FROM nodes_vec ORDER BY rowid').all();
+    expect(rows).toEqual([
+      { rowid: a1, projectId: 'proj-a' },
+      { rowid: b1, projectId: 'proj-b' },
+    ]);
+
+    const projectAHits = db
+      .prepare('SELECT rowid, distance FROM nodes_vec WHERE embedding MATCH ? AND k = ? AND project_id = ? ORDER BY distance')
+      .all(vecOf(0.1), 5, 'proj-a') as Array<{ rowid: number; distance: number }>;
+    expect(projectAHits).toEqual([{ rowid: a1, distance: 0 }]);
 
     db.close();
   });

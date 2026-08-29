@@ -259,6 +259,48 @@ ALTER TABLE nodes ADD COLUMN trust_state TEXT NOT NULL DEFAULT 'candidate';
 CREATE INDEX idx_nodes_trust_state ON nodes (project_id, trust_state) WHERE trust_state != 'candidate';
 `;
 
+/**
+ * Give `nodes_vec` its own `project_id`, as a vec0 `PARTITION KEY` rather
+ * than a plain column -- confirmed against a live sqlite-vec 0.1.9 call that
+ * this pushes an equality filter into the `k`-nearest-neighbour search
+ * itself, not just a post-join `WHERE`. Before this, `vectorSearch` had no
+ * way to ask vec0 for "k nearest *in this project*", only "k nearest
+ * globally, then discard the wrong project's rows" (the `limit * 8`
+ * over-fetch this replaces, in embeddings.ts) -- a heuristic that returns
+ * fewer than `limit` results, silently, whenever a small project shares a
+ * database with a much larger one and none of its true nearest neighbours
+ * make the global cut. Reproduced exactly that failure in a scratch script
+ * before writing this: 495 rows in one project + 5 in another, global
+ * `k=50` surfaced 0 of the 5; partitioned `k=5` surfaced all 5.
+ *
+ * vec0 cannot `ALTER TABLE ADD COLUMN` or be renamed (renaming leaves its
+ * shadow tables, e.g. `nodes_vec_info`, under the old name and the next
+ * `CREATE VIRTUAL TABLE nodes_vec` collides with them -- tried first,
+ * confirmed broken), so this stages the existing rows in a plain temp table,
+ * drops the old virtual table (which does clean up its shadow tables), then
+ * recreates `nodes_vec` under its original name and reloads from the stage.
+ * `project_id` is backfilled via the same rowid join every other seam in
+ * this file already uses to reach `nodes_vec` from `nodes`.
+ */
+const V11 = `
+CREATE TEMP TABLE nodes_vec_stage AS
+  SELECT v.rowid AS rowid, n.project_id AS project_id, v.embedding AS embedding
+  FROM nodes_vec v
+  JOIN nodes n ON n.rowid = v.rowid;
+
+DROP TABLE nodes_vec;
+
+CREATE VIRTUAL TABLE nodes_vec USING vec0 (
+  project_id TEXT PARTITION KEY,
+  embedding float[${EMBEDDING_DIM}]
+);
+
+INSERT INTO nodes_vec (rowid, project_id, embedding)
+  SELECT rowid, project_id, embedding FROM nodes_vec_stage;
+
+DROP TABLE nodes_vec_stage;
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -276,6 +318,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 8, up: (db) => db.exec(V8) },
   { version: 9, up: (db) => db.exec(V9) },
   { version: 10, up: (db) => db.exec(V10) },
+  { version: 11, up: (db) => db.exec(V11) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;

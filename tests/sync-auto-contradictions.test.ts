@@ -47,7 +47,7 @@ describe('runAutoContradictionCheck (the sync-time leg)', () => {
   async function embedAllPending(): Promise<void> {
     for (const pending of store.findNodesNeedingEmbedding(PROJECT)) {
       const vector = await embedder.embed(`${pending.title}\n${pending.body}`);
-      store.upsertEmbedding(pending.rowid, vector!);
+      store.upsertEmbedding(pending.rowid, PROJECT, vector!);
     }
   }
 

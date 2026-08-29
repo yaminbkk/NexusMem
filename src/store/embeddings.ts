@@ -71,8 +71,8 @@ export function getEmbedding(db: Database, nodeId: string): Float32Array | null 
   return new Float32Array(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength / 4);
 }
 
-export function upsertEmbedding(db: Database, rowid: number, embedding: Float32Array): void {
-  db.prepare('INSERT OR REPLACE INTO nodes_vec (rowid, embedding) VALUES (?, ?)').run(BigInt(rowid), embedding);
+export function upsertEmbedding(db: Database, rowid: number, projectId: string, embedding: Float32Array): void {
+  db.prepare('INSERT OR REPLACE INTO nodes_vec (rowid, project_id, embedding) VALUES (?, ?, ?)').run(BigInt(rowid), projectId, embedding);
 }
 
 /**
@@ -95,10 +95,15 @@ export interface VectorSearchOptions {
 /**
  * Nearest-neighbour search over the corpus.
  *
- * `nodes_vec` has no `project_id` column of its own (embeddings are
- * generic; project scoping lives on `nodes`), so this over-fetches `k`
- * before joining and filtering, then caps to `limit`. Simple and correct;
- * not the efficient way to do this at a scale this project isn't at yet.
+ * `project_id` is a vec0 `PARTITION KEY` on `nodes_vec` (schema.ts's V11),
+ * so `k` is computed *within* the project's own rows -- no cross-project
+ * over-fetch-then-filter needed, and no risk of a sparse project's true
+ * nearest neighbours falling outside an over-fetch window sized for a much
+ * larger database. `created_at` isn't a partition column though (an
+ * `--as-of` query is rare and per-query, not worth a second one), so that
+ * path still over-fetches to compensate for rows the time filter drops
+ * afterward -- the same heuristic this function used to need for both
+ * dimensions, now needed for only one.
  */
 export function vectorSearch(
   db: Database,
@@ -107,17 +112,17 @@ export function vectorSearch(
   limit = 20,
   opts: VectorSearchOptions = {},
 ): VectorHit[] {
-  const overfetch = Math.max(limit * 8, 50);
   const asOfEpoch = opts.asOfEpoch ?? null;
+  const k = asOfEpoch === null ? limit : Math.max(limit * 8, 50);
   return db
     .prepare(
       `SELECT n.id, n.kind, n.ts, n.title, n.body, n.signal, n.provenance, n.trust_state AS trustState, v.distance AS distance
        FROM nodes_vec v
        JOIN nodes n ON n.rowid = v.rowid
-       WHERE v.embedding MATCH ? AND k = ? AND n.project_id = ?
+       WHERE v.embedding MATCH ? AND k = ? AND v.project_id = ?
          AND (? IS NULL OR n.created_at <= ?)
        ORDER BY v.distance
        LIMIT ?`,
     )
-    .all(embedding, overfetch, projectId, asOfEpoch, asOfEpoch, limit) as VectorHit[];
+    .all(embedding, k, projectId, asOfEpoch, asOfEpoch, limit) as VectorHit[];
 }

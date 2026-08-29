@@ -272,7 +272,7 @@ describe('embedding provider identity', () => {
     // present, provenance unknown. They came from the unnormalised endpoint,
     // so they cannot be compared with anything produced now.
     const [pending] = store.findNodesNeedingEmbedding(PROJECT);
-    store.upsertEmbedding(pending!.rowid, vector(0.9));
+    store.upsertEmbedding(pending!.rowid, PROJECT, vector(0.9));
     expect(store.getMeta(EMBEDDING_IDENTITY_KEY)).toBeNull();
 
     const result = await embedPendingNodes(store, new RecordingProvider('model-a:v1'), PROJECT);
