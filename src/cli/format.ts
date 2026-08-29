@@ -35,6 +35,7 @@ export const CONVERSATION_SIGNAL_BANDS: SignalBands = { high: 0.55, medium: 0.35
 export const DOCS_SIGNAL_BANDS: SignalBands = { high: 0.55, medium: 0.35 };
 /** Same cutoffs as git: a diff's score is anchored on its commit's type, so it lives on the same scale. */
 export const DIFF_SIGNAL_BANDS: SignalBands = { high: 0.7, medium: 0.45 };
+export const GITHUB_SIGNAL_BANDS: SignalBands = { high: 0.6, medium: 0.4 };
 
 export type SignalBand = 'high' | 'medium' | 'low';
 
