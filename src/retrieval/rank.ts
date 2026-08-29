@@ -99,8 +99,23 @@ const REJECTED_TRUST_PENALTY = 0.3;
  * makes its entire range worth exactly its share -- solving
  * `span^exponent = PER_PRIOR_OVERTURN`. Adding a third prior re-divides the same
  * budget rather than enlarging it, which is the property that was missing.
+ *
+ * The value itself (2, at introduction) was a starting guess, not measured --
+ * grid-searched against `eval/queries.json`'s 28 labelled cases on 2026-08-29
+ * once that harness existed: 1.5 regresses (MRR 0.864), 2 scores 0.924, 2.4
+ * scores 0.943, and 3-5 tie at a higher 0.946 plateau, before a cliff at 6
+ * (0.927, q007 regresses) -- all with zero per-case regressions *in that
+ * corpus*. But the corpus doesn't cover every case this constant guards:
+ * `tests/retrieval.test.ts`'s "dogfooded regression" case (the exact
+ * same-day-fix-commits-bury-the-doc bug from the paragraph above) starts
+ * failing again anywhere above ~2.5 -- the eval-optimal 3-5 plateau silently
+ * re-opens the original bug this mechanism exists to prevent, just outside
+ * this specific 28-query corpus's view. 2.4 is the highest value that still
+ * passes every case in that suite, chosen over the higher-scoring plateau for
+ * that reason. Re-run both `npx tsx scripts/eval.ts` and
+ * `npx vitest run tests/retrieval.test.ts` after touching this value.
  */
-const MAX_PRIOR_OVERTURN = 2;
+const MAX_PRIOR_OVERTURN = 2.4;
 /** signal and recency. Update when a query-independent factor joins the score. */
 const PRIOR_COUNT = 2;
 const PER_PRIOR_OVERTURN = MAX_PRIOR_OVERTURN ** (1 / PRIOR_COUNT);
