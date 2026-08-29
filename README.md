@@ -428,16 +428,16 @@ failure or high recent churn; exits 0 unless `--strict`), `hook install|remove|s
 PowerShell exit-code hook), and `hook git install|remove|status` (a git pre-commit hook that runs
 `precheck` before each commit).
 
-There are also seven dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
-`scan-conversation`, `scan-session`, `scan-structure`) that write nothing and print what ingestion
-*would* produce — nodes and their signal scores for the first six, import-graph edges for
-`scan-structure`. That is the intended way to tune scoring against a real repository before
-committing to a change. Add `--json` to pipe them somewhere.
+There are also eight dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
+`scan-conversation`, `scan-session`, `scan-github`, `scan-structure`) that write nothing and print
+what ingestion *would* produce — nodes and their signal scores for the first seven, import-graph
+edges for `scan-structure`. That is the intended way to tune scoring against a real repository
+before committing to a change. Add `--json` to pipe them somewhere.
 
-Every command takes `-C <path>` to target another repository. On `sync`, `--conversation` opts the
-transcript source in for one run without persisting it, `--no-embed` skips the vector pass,
-`--link-failures` builds the failure → fix chains described above, and `--rebuild` drops the
-project's nodes and re-ingests from scratch.
+Every command takes `-C <path>` to target another repository. On `sync`, `--conversation` and
+`--github` opt their (opt-in) sources in for one run without persisting it, `--no-embed` skips the
+vector pass, `--link-failures` builds the failure → fix chains described above, and `--rebuild`
+drops the project's nodes and re-ingests from scratch.
 
 `sync --prune-source <name>` deletes an entire collector source (e.g. `shell:pwsh`); `forget <value>`
 is the finer-grained complement — it deletes every node matching one exact string (or `--regex`
