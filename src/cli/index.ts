@@ -21,6 +21,7 @@ import { runScanConversation } from './commands/scan-conversation.js';
 import { runScanDiff } from './commands/scan-diff.js';
 import { runScanDocs } from './commands/scan-docs.js';
 import { runScanGit } from './commands/scan-git.js';
+import { runScanGithub } from './commands/scan-github.js';
 import { runScanSession, SCAN_SESSION_DEFAULT_MODEL } from './commands/scan-session.js';
 import { runScanShell } from './commands/scan-shell.js';
 import { runScanStructure } from './commands/scan-structure.js';
@@ -394,6 +395,14 @@ program
   .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
   .option('--json', 'emit MemoryNodes as JSON on stdout', false)
   .action((options) => guard(() => runScanDocs({ cwd: options.cwd, minSignal: options.minSignal, json: options.json }))());
+
+program
+  .command('scan-github')
+  .description('Preview the MemoryNodes github.com issues/PRs would produce (writes nothing, needs `gh` installed and authenticated)')
+  .option('-C, --cwd <path>', 'repository path', process.cwd())
+  .option('--min-signal <score>', 'drop nodes below this signal', (v) => Number.parseFloat(v), 0)
+  .option('--json', 'emit MemoryNodes as JSON on stdout', false)
+  .action((options) => guard(() => runScanGithub({ cwd: options.cwd, minSignal: options.minSignal, json: options.json }))());
 
 program
   .command('precheck')
