@@ -155,4 +155,26 @@ describe('sync: github source', () => {
     expect(provider.calls).toHaveLength(0);
     expect(threadCount()).toBe(0);
   });
+
+  it('passes a null since-cursor on the first sync, then the prior request time on the next', async () => {
+    const provider = new RecordingProvider([fakeThread]);
+    const opts = { cwd: dir, full: false, rebuild: false, quiet: true, noEmbed: true, githubOverride: true, githubProvider: provider };
+
+    await runSync(opts);
+    expect(provider.calls[0]).toBeNull();
+
+    await runSync(opts);
+    expect(provider.calls[1]).not.toBeNull();
+    expect(Number.isNaN(Date.parse(provider.calls[1]!))).toBe(false);
+  });
+
+  it('re-ingesting the same thread is idempotent (upsert, not duplicate)', async () => {
+    const provider = new RecordingProvider([fakeThread]);
+    const opts = { cwd: dir, full: false, rebuild: false, quiet: true, noEmbed: true, githubOverride: true, githubProvider: provider };
+
+    await runSync(opts);
+    await runSync(opts);
+
+    expect(threadCount()).toBe(1);
+  });
 });
