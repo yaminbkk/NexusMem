@@ -13,7 +13,8 @@ export type NodeKind =
   | 'note'
   | 'conversation_turn'
   | 'doc_section'
-  | 'session_summary';
+  | 'session_summary'
+  | 'github_thread';
 
 /**
  * Trust tier, highest first: `observed` (the event itself), `authored` (a
@@ -45,6 +46,8 @@ export function defaultProvenanceForKind(kind: NodeKind): Provenance {
       return 'recorded';
     case 'session_summary':
       return 'derived';
+    case 'github_thread':
+      return 'recorded';
   }
 }
 
