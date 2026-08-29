@@ -216,6 +216,13 @@ npx nexusmem sync</pre>
         <h3>Multi-language import graph</h3>
         <p>JS, TS, Python, Go, Rust, Java and PHP: parses real import/module statements into edges between files, so "what imports this" is answerable without a repo-wide grep.</p>
       </div>
+      <div class="card reveal">
+        <div class="icon-chip" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="url(#brand-gradient)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="10" r="7"/><path d="M12 7v4M12 14h.01"/><path d="M8 20l2.5-3"/></svg>
+        </div>
+        <h3>GitHub issues &amp; PRs</h3>
+        <p>Opt-in — the first source with a real external dependency. Reads issue/PR threads via the <code>gh</code> CLI, title through every comment, into the same searchable memory.</p>
+      </div>
     </div>
   </div>
 </section>
@@ -384,7 +391,7 @@ npx nexusmem query "why did the retry fail"</pre>
       <dt>init</dt>
       <dd>Set up <code>.nexusmem/</code> in the current repository.</dd>
       <dt>sync</dt>
-      <dd>Ingest git, diffs, shell history and docs; embed anything new.</dd>
+      <dd>Ingest git, diffs, shell history and docs; embed anything new. Add <code>--github</code> to also pull this repo's github.com issue/PR threads for the run.</dd>
       <dt>query &lt;text&gt;</dt>
       <dd>Ranked, token-budgeted context for a question, printed to stdout. Add <code>--as-of &lt;date&gt;</code> to read what the store held at that point, not what's true now.</dd>
       <dt>status</dt>
