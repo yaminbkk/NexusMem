@@ -105,7 +105,7 @@ export function createServer(): McpServer {
     {
       title: 'List recently remembered items',
       description:
-        'List the most recently remembered items for a NexusMem-tracked repository -- git commits, code diffs, shell commands, tracked docs, and (if enabled) conversation transcripts and session summaries -- newest first. Chronological, not relevance-ranked: use search_memory instead for a specific question.',
+        'List the most recently remembered items for a NexusMem-tracked repository -- git commits, code diffs, shell commands, tracked docs, and (if enabled) conversation transcripts, session summaries, and github.com issue/PR threads -- newest first. Chronological, not relevance-ranked: use search_memory instead for a specific question.',
       inputSchema: {
         projectRoot: z.string().describe('Absolute path to the repository root'),
         limit: z.number().int().positive().optional().describe('Max items to return, newest first. Default 20.'),
