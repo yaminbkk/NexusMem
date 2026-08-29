@@ -29,3 +29,17 @@ function toGithubError(err: unknown): GithubUnavailableError {
   const detail = stderr.trim().split('\n')[0] || (err instanceof Error ? err.message : String(err));
   return new GithubUnavailableError(`gh api call failed: ${detail}`, err);
 }
+
+/**
+ * `owner/repo` from a git remote URL, or `null` if it isn't a github.com
+ * remote at all (a GitLab/Bitbucket/local-only repo, or no remote yet).
+ *
+ * Handles both protocols `readRepoInfo` can hand back: `https://github.com/o/r.git`
+ * and `git@github.com:o/r.git`.
+ */
+export function parseGithubSlug(originUrl: string | null): string | null {
+  if (!originUrl) return null;
+  const match = originUrl.match(/github\.com[:/]([^/]+)\/(.+?)(?:\.git)?\/?$/i);
+  if (!match) return null;
+  return `${match[1]}/${match[2]}`;
+}
