@@ -785,11 +785,13 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     const docsPart = config.sources.docs.enabled ? `, ${docs.seen} doc section(s)` : '';
     const diffPart = config.sources.diff.enabled ? `, ${diffs.seen} file diff(s)` : '';
     const structurePart = config.sources.structure.enabled ? `, ${structure.edges} import edge(s)` : '';
+    const githubEnabled = opts.githubOverride ?? config.sources.github.enabled;
+    const githubPart = githubEnabled ? `, ${github.seen} github thread(s)` : '';
     const deniedPart = totals.denied > 0 ? `  ${pc.red(`-${totals.denied} denied`)}` : '';
 
     out(
       [
-        `${pc.green('synced')} ${git.seen} commit(s)${diffPart}, ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${sessionPart}${docsPart}${structurePart} in ${elapsed}s`,
+        `${pc.green('synced')} ${git.seen} commit(s)${diffPart}, ${shell.seen} shell entr${shell.seen === 1 ? 'y' : 'ies'}${conversationPart}${sessionPart}${docsPart}${githubPart}${structurePart} in ${elapsed}s`,
         `  ${pc.green(`+${totals.inserted} new`)}  ${pc.yellow(`~${totals.updated} updated`)}  ${pc.dim(`=${totals.unchanged} unchanged`)}${deniedPart}`,
         `  ${pc.dim(`${stats.total} node(s) total across ${stats.distinctFiles} file path(s)`)}`,
         '',
