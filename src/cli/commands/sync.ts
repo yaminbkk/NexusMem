@@ -14,6 +14,7 @@ import { makeNodeId } from '../../core/ids.js';
 import type { MemoryNode } from '../../core/types.js';
 import { readDocFiles } from '../../docs/read.js';
 import { isAncestor } from '../../git/repo.js';
+import { GhCliProvider, GithubUnavailableError, parseGithubSlug, type GithubProvider } from '../../github/read.js';
 import { checkContradictions } from '../../retrieval/contradiction.js';
 import { collectAvailableShellHistory } from '../../shell/detect.js';
 import { OllamaChatProvider, type SummarizationProvider } from '../../slm/provider.js';
@@ -36,6 +37,10 @@ export interface SyncOptions {
   shellTailLines?: number;
   /** Forces the (opt-in) conversation source on for this run without persisting it to config. */
   conversationOverride?: boolean;
+  /** Forces the (opt-in) github source on for this run without persisting it to config. */
+  githubOverride?: boolean;
+  /** Injectable for tests; defaults to the real `gh`-backed provider. */
+  githubProvider?: GithubProvider;
   /** Skip the embedding pass entirely -- useful when Ollama isn't running and you don't want to wait out its timeout. */
   noEmbed?: boolean;
   /** Stop the embedding pass after this many nodes. Unset means drain the backlog. */
