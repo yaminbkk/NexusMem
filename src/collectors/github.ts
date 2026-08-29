@@ -92,3 +92,11 @@ export function toMemoryNode(thread: RawGithubThread, projectId: string, opts: G
     },
   };
 }
+
+export function collectGithubThreads(
+  threads: readonly RawGithubThread[],
+  projectId: string,
+  opts: GithubCollectorOptions = {},
+): MemoryNode[] {
+  return threads.map((thread) => toMemoryNode(thread, projectId, opts));
+}
