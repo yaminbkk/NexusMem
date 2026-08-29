@@ -47,9 +47,17 @@ const CONVERSATION_ANSWER_MARKER = '\n\nA: ';
  * crowding out every other node -- including the actually relevant one.
  * Kept at 2 rather than 1 so a reply that is genuinely relevant in two
  * places still shows both, without letting either dominate.
+ *
+ * `code_diff` shares the same shape: every file changed by one commit gets
+ * its own node, all stamped with that commit's `authoredAt` (see
+ * `collectors/diffs.ts`), so it is the same family key by the same
+ * reasoning. Verified live on eval case q004 ("review command verify reject
+ * trust state"): 4+ per-file diffs of one commit filled ranks 1-4 (and most
+ * of 6-12), pushing that commit's own `git_commit` node -- the actual answer
+ * -- down to rank 5.
  */
 const MAX_PER_FAMILY = 2;
-const CHUNKED_KINDS = new Set(['conversation_turn', 'doc_section']);
+const CHUNKED_KINDS = new Set(['conversation_turn', 'doc_section', 'code_diff']);
 
 /** Start of a hunk, at the beginning of a line. */
 const HUNK_BOUNDARY = '\n@@ ';
