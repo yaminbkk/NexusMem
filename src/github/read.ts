@@ -1,4 +1,8 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import type { RawGithubComment, RawGithubThread } from './types.js';
+
+const execFileAsync = promisify(execFile);
 
 /**
  * `gh` isn't installed, isn't authenticated, or the call otherwise failed --
@@ -73,4 +77,93 @@ interface GhCommentItem {
   user: { login: string } | null;
   body: string | null;
   created_at: string;
+}
+
+export interface GhCliProviderOptions {
+  /** Threads fetched per call, newest-updated first. Default 100. */
+  maxThreads?: number;
+  /** Comments read per thread. Default 100. */
+  maxCommentsPerThread?: number;
+}
+
+/**
+ * Real `gh` CLI-backed provider. Reuses this machine's own `gh auth login`
+ * session -- no token handling in this codebase, same trust boundary as
+ * every other `gh api`/`gh release` call this project already makes from a
+ * session, just now from inside the product instead of only from a dev
+ * session's own hands.
+ */
+export class GhCliProvider implements GithubProvider {
+  constructor(
+    private readonly repoSlug: string,
+    private readonly opts: GhCliProviderOptions = {},
+  ) {}
+
+  async listThreads(since: string | null): Promise<RawGithubThread[]> {
+    const maxThreads = this.opts.maxThreads ?? 100;
+    const perPage = Math.min(maxThreads, 100);
+    const params = new URLSearchParams({
+      state: 'all',
+      sort: 'updated',
+      direction: 'desc',
+      per_page: String(perPage),
+    });
+    if (since) params.set('since', since);
+
+    let items: GhIssueItem[];
+    try {
+      const { stdout } = await execFileAsync('gh', ['api', `repos/${this.repoSlug}/issues?${params}`], {
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      items = JSON.parse(stdout) as GhIssueItem[];
+    } catch (err) {
+      throw toGithubError(err);
+    }
+
+    const bounded = items.slice(0, maxThreads);
+    const threads: RawGithubThread[] = [];
+    for (const item of bounded) {
+      const comments = item.comments > 0 ? await this.fetchComments(item.number) : [];
+      threads.push({
+        number: item.number,
+        type: item.pull_request ? 'pull_request' : 'issue',
+        title: item.title,
+        body: item.body ?? '',
+        author: item.user?.login ?? 'unknown',
+        state: item.state,
+        merged: item.pull_request?.merged_at != null,
+        labels: item.labels.map((l) => (typeof l === 'string' ? l : l.name)),
+        createdAt: item.created_at,
+        updatedAt: item.updated_at,
+        url: item.html_url,
+        comments,
+      });
+    }
+    return threads;
+  }
+
+  /**
+   * Fails soft per thread, unlike `listThreads` itself: one comment fetch
+   * failing (a deleted comment, a transient network blip) shouldn't drop the
+   * whole sync the way an unreachable `gh`/no auth does. The thread still
+   * gets ingested, just without that page of discussion this run.
+   */
+  private async fetchComments(number: number): Promise<RawGithubComment[]> {
+    const maxComments = this.opts.maxCommentsPerThread ?? 100;
+    try {
+      const { stdout } = await execFileAsync(
+        'gh',
+        ['api', `repos/${this.repoSlug}/issues/${number}/comments?per_page=${Math.min(maxComments, 100)}`],
+        { maxBuffer: 16 * 1024 * 1024 },
+      );
+      const items = JSON.parse(stdout) as GhCommentItem[];
+      return items.slice(0, maxComments).map((c) => ({
+        author: c.user?.login ?? 'unknown',
+        body: c.body ?? '',
+        createdAt: c.created_at,
+      }));
+    } catch {
+      return [];
+    }
+  }
 }
