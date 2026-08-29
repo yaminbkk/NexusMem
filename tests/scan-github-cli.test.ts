@@ -94,4 +94,31 @@ describe('nexusmem scan-github', () => {
     expect(code).toBe(0);
     expect(stderr.join('')).toContain('gh auth login');
   });
+
+  it('--json emits an array of github_thread nodes', async () => {
+    addGithubRemote();
+
+    const code = await runScanGithub({ cwd: dir, json: true, minSignal: 0, provider: fakeProvider([fakeThread]) });
+
+    expect(code).toBe(0);
+    const nodes = JSON.parse(stdout.join(''));
+    expect(Array.isArray(nodes)).toBe(true);
+    expect(nodes[0].kind).toBe('github_thread');
+  });
+
+  it('--min-signal filters out low-signal threads', async () => {
+    addGithubRemote();
+    const quiet: RawGithubThread = { ...fakeThread, number: 99, state: 'closed', labels: [], comments: [] };
+
+    const code = await runScanGithub({
+      cwd: dir,
+      json: true,
+      minSignal: 0.45,
+      provider: fakeProvider([fakeThread, quiet]),
+    });
+
+    expect(code).toBe(0);
+    const nodes = JSON.parse(stdout.join(''));
+    expect(nodes.every((n: { meta: { number: number } }) => n.meta.number !== 99)).toBe(true);
+  });
 });
