@@ -4,6 +4,7 @@ import { collectConversationTurns } from '../../collectors/conversation.js';
 import { collectCommitDiffs, DIFF_SOURCE } from '../../collectors/diffs.js';
 import { collectDocFiles } from '../../collectors/docs.js';
 import { collectGitCommits } from '../../collectors/git-commits.js';
+import { collectGithubThreads } from '../../collectors/github.js';
 import { collectSessionSummaries } from '../../collectors/sessions.js';
 import { collectShellHistory } from '../../collectors/shell-history.js';
 import { forgetProjects, recordProject } from '../../config/registry.js';
@@ -405,6 +406,69 @@ async function syncDocs(
     const skippedPart = unreadable.length > 0 ? `, ${unreadable.length} unreadable (kept)` : '';
     log(`  ${pc.dim(`${DOCS_SOURCE}: ${nodes.length} section(s) from ${files.length} file(s)`)}${prunedPart}${pc.dim(skippedPart)}`);
   }
+
+  return { totals, seen: nodes.length };
+}
+
+const GITHUB_SOURCE = 'github';
+
+/**
+ * Issue/PR threads for this repo's github.com remote, via `gh`.
+ *
+ * One cursor for both issues and PRs, since one API call covers both (see
+ * `RawGithubThread.type`). Unlike `syncDocs`, this never prunes: the GitHub
+ * API's `since` filter only returns threads *updated* since the cursor, so a
+ * thread absent from an incremental batch just means nothing changed on
+ * it -- not that it was deleted, the way an absent doc file's section means.
+ * The cursor is the moment the request was sent, not the newest `updatedAt`
+ * seen -- a batch that happens to return zero threads must not leave the
+ * cursor pointing at some much older value.
+ */
+async function syncGithub(
+  store: MemoryStore,
+  projectId: string,
+  opts: SyncOptions,
+  repo: Awaited<ReturnType<typeof loadContext>>['repo'],
+  config: Awaited<ReturnType<typeof loadContext>>['config'],
+  log: (line: string) => void,
+): Promise<{ totals: IngestStats; seen: number }> {
+  const totals: IngestStats = { inserted: 0, updated: 0, unchanged: 0, denied: 0 };
+  const enabled = opts.githubOverride ?? config.sources.github.enabled;
+
+  if (!enabled) return { totals, seen: 0 };
+
+  const slug = parseGithubSlug(repo.originUrl);
+  if (!slug) {
+    log(`${pc.dim('github')} no github.com remote found -- skipped`);
+    return { totals, seen: 0 };
+  }
+
+  const provider =
+    opts.githubProvider ??
+    new GhCliProvider(slug, {
+      maxThreads: config.sources.github.maxThreads,
+      maxCommentsPerThread: config.sources.github.maxCommentsPerThread,
+    });
+
+  const cursor = opts.full || opts.rebuild ? null : store.getSyncCursor(projectId, GITHUB_SOURCE);
+  const requestedAt = new Date().toISOString();
+
+  let threads;
+  try {
+    threads = await provider.listThreads(cursor);
+  } catch (err) {
+    if (err instanceof GithubUnavailableError) {
+      log(`${pc.dim('github')} ${err.message} -- skipped`);
+      return { totals, seen: 0 };
+    }
+    throw err;
+  }
+
+  const nodes = collectGithubThreads(threads, projectId, { maxBodyChars: config.limits.maxBodyChars });
+  if (nodes.length > 0) addStats(totals, store.upsertNodes(nodes));
+
+  store.setSyncCursor(projectId, GITHUB_SOURCE, requestedAt);
+  log(`  ${pc.dim(`${GITHUB_SOURCE}: ${nodes.length} thread(s) read from ${slug}`)}`);
 
   return { totals, seen: nodes.length };
 }
