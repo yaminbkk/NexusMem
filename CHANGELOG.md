@@ -9,6 +9,10 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [0.10.0] — 2026-08-29
+
 ### Added
 
 - New opt-in `github` source: `sources.github.enabled`, `nexusmem scan-github`, `sync --github`.
@@ -571,7 +575,9 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.9.0...HEAD
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/yaminbkk/NexusMem/compare/v0.9.1...v0.10.0
+[0.9.1]: https://github.com/yaminbkk/NexusMem/compare/v0.9.0...v0.9.1
 [0.9.0]: https://github.com/yaminbkk/NexusMem/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/yaminbkk/NexusMem/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/yaminbkk/NexusMem/compare/v0.6.0...v0.7.0
