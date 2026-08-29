@@ -124,6 +124,27 @@ export const ConfigSchema = z.object({
           enabled: z.boolean().default(true),
         })
         .default({ enabled: true }),
+      /**
+       * Issue and PR threads (title, body, comments) for this repo's
+       * github.com remote, read via the `gh` CLI.
+       *
+       * Opt-in, unlike git/shell/docs/structure -- not for a sensitivity
+       * reason (issue/PR text is usually no more sensitive than a doc file),
+       * but because this is the first source with a real external dependency:
+       * it needs `gh` installed and authenticated, and makes live network
+       * calls instead of reading only what's already on disk. A repo with no
+       * github.com remote at all, or an unauthenticated `gh`, must stay a
+       * silent no-op either way -- see `syncGithub` in sync.ts.
+       */
+      github: z
+        .object({
+          enabled: z.boolean().default(false),
+          /** Threads read per sync, newest-updated first. */
+          maxThreads: z.number().int().positive().default(100),
+          /** Comments read per thread. */
+          maxCommentsPerThread: z.number().int().positive().default(100),
+        })
+        .default({ enabled: false, maxThreads: 100, maxCommentsPerThread: 100 }),
     })
     .default({
       git: { enabled: true, since: null, includeMerges: true },
@@ -139,6 +160,7 @@ export const ConfigSchema = z.object({
       docs: { enabled: true, include: ['*.md'] },
       diff: { enabled: true, maxCommits: 200, maxFilesPerCommit: 20, contextLines: 3 },
       structure: { enabled: true },
+      github: { enabled: false, maxThreads: 100, maxCommentsPerThread: 100 },
     }),
   limits: z
     .object({
