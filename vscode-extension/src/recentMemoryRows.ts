@@ -30,6 +30,7 @@ const KIND_ICON: Record<string, string> = {
   conversation_turn: 'comment-discussion',
   session_summary: 'checklist',
   note: 'note',
+  github_thread: 'github',
 };
 
 const DEFAULT_ICON = 'circle-small-filled';
