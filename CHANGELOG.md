@@ -11,6 +11,33 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 No unreleased changes yet.
 
+## [0.9.1] — 2026-08-29
+
+Three ranking/retrieval correctness fixes, found and validated against a new 28-case retrieval-quality
+eval harness (`npm run eval`, dev-only, not part of the published package).
+
+### Fixed
+
+- `nodes_vec` (vector search) over-fetched `k` globally, then filtered by `project_id` after the join —
+  a heuristic, not a guarantee. A sparse project sharing `memory.db` with a much larger one could have
+  every true nearest neighbour fall outside the over-fetch window and get silently dropped (reproduced:
+  495 rows in one project + 5 in another, global `k=50` surfaced 0 of the 5). Schema V11 gives `nodes_vec`
+  a `PARTITION KEY` on `project_id` (`sqlite-vec` 0.1.9+), pushing the equality filter into the k-NN
+  search itself so cross-project exactness is now guaranteed, not probable. Migrates existing databases
+  automatically on next `sync`/`query`. `--as-of` date filtering still over-fetches — only the
+  `project_id` dimension was ever a correctness guarantee.
+- `MAX_PRIOR_OVERTURN` (the cap on how far a recency/signal prior may overturn relevance) raised
+  `2 → 2.4`, the highest value that both improves eval MRR (0.924→0.943) and still passes every legacy
+  regression test guarding against the original same-day-fix-commits bug this constant exists to bound.
+- A commit's `code_diff` siblings (one node per changed file, all sharing the same `ts`) could crowd a
+  packed result and bury that commit's own `git_commit` node — its answer — several ranks down. Now
+  capped per commit, matching the existing `conversation_turn`/`doc_section` family cap.
+- `package.json`/`tsconfig.json` diffs were ranking above more relevant results when a changed file's
+  path happened to echo its commit's conventional-commit scope (title is weighted 10x body, so the scope
+  word counted twice). Down-weighted as mechanical wiring, same reasoning `TEST_PATHS` already applies to
+  tests. Only affects nodes ingested from here on — existing manifest/config diffs need `sync --rebuild`
+  to get the corrected signal retroactively.
+
 ## [0.9.0] — 2026-08-27
 
 Closes the three remaining mechanisms from a recurring external review (Simon Strandgaard, Agent
