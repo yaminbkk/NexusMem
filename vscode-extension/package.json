@@ -1,7 +1,7 @@
 {
   "name": "nexusmem-vscode",
   "displayName": "NexusMem",
-  "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations, github issues/PRs) from the command palette, a sidebar of what's been remembered lately, an in-editor sync command, and a proactive check when a terminal command fails.",
+  "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations, github issues/PRs) from the command palette, a sidebar of what's been remembered lately, an in-editor sync command, a proactive check when a terminal command fails, and a review queue for AI-flagged contradictions.",
   "version": "0.1.1",
   "icon": "icon.png",
   "license": "MIT",
@@ -41,6 +41,21 @@
         "command": "nexusmem.syncProject",
         "title": "NexusMem: Sync Memory",
         "icon": "$(sync)"
+      },
+      {
+        "command": "nexusmem.refreshStaleReview",
+        "title": "NexusMem: Refresh Memory Review",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "nexusmem.acceptStaleSuggestion",
+        "title": "NexusMem: Mark Stale (Accept Suggestion)",
+        "icon": "$(check)"
+      },
+      {
+        "command": "nexusmem.dismissStaleSuggestion",
+        "title": "NexusMem: Dismiss Suggestion",
+        "icon": "$(close)"
       }
     ],
     "views": {
@@ -48,6 +63,10 @@
         {
           "id": "nexusmem.recentMemory",
           "name": "NexusMem: Recent Memory"
+        },
+        {
+          "id": "nexusmem.staleReview",
+          "name": "NexusMem: Memory Review"
         }
       ]
     },
@@ -62,6 +81,23 @@
           "command": "nexusmem.refreshRecentMemory",
           "when": "view == nexusmem.recentMemory",
           "group": "navigation@2"
+        },
+        {
+          "command": "nexusmem.refreshStaleReview",
+          "when": "view == nexusmem.staleReview",
+          "group": "navigation@1"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "nexusmem.acceptStaleSuggestion",
+          "when": "view == nexusmem.staleReview && viewItem == staleSuggestion",
+          "group": "inline@1"
+        },
+        {
+          "command": "nexusmem.dismissStaleSuggestion",
+          "when": "view == nexusmem.staleReview && viewItem == staleSuggestion",
+          "group": "inline@2"
         }
       ]
     },

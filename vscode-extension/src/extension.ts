@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
-import { searchMemory, ServerNotFoundError, syncProject, type SearchMemoryResult } from './mcpClient.js';
+import { resolveStaleSuggestion, searchMemory, ServerNotFoundError, syncProject, type SearchMemoryResult } from './mcpClient.js';
 import { renderResultsHtml } from './renderResults.js';
 import { RecentMemoryProvider } from './recentMemoryView.js';
+import { StaleReviewProvider } from './staleReviewView.js';
+import type { StaleReviewRow } from './staleReviewRows.js';
 import { shouldCheckFailure, shouldNotify, truncateForNotification } from './failureDetection.js';
 
 function getCliPath(): string {
@@ -17,13 +19,24 @@ export function activate(context: vscode.ExtensionContext): void {
   const recentMemory = new RecentMemoryProvider(getCliPath);
   context.subscriptions.push(vscode.window.registerTreeDataProvider('nexusmem.recentMemory', recentMemory));
 
+  const staleReview = new StaleReviewProvider(getCliPath);
+  context.subscriptions.push(vscode.window.registerTreeDataProvider('nexusmem.staleReview', staleReview));
+
   context.subscriptions.push(
     vscode.commands.registerCommand('nexusmem.searchMemory', (prefilledQuery?: string) => runSearchMemory(context, prefilledQuery)),
     vscode.commands.registerCommand('nexusmem.refreshRecentMemory', () => recentMemory.refresh()),
     vscode.commands.registerCommand('nexusmem.syncProject', () => runSyncProject(recentMemory)),
+    vscode.commands.registerCommand('nexusmem.refreshStaleReview', () => staleReview.refresh()),
+    vscode.commands.registerCommand('nexusmem.acceptStaleSuggestion', (row: StaleReviewRow) =>
+      runResolveStaleSuggestion(row, 'accept', staleReview, recentMemory),
+    ),
+    vscode.commands.registerCommand('nexusmem.dismissStaleSuggestion', (row: StaleReviewRow) =>
+      runResolveStaleSuggestion(row, 'dismiss', staleReview, recentMemory),
+    ),
   );
 
   void recentMemory.refresh();
+  void staleReview.refresh();
   registerLiveFailureDetection(context);
 }
 
@@ -146,6 +159,39 @@ async function runSyncProject(recentMemory: RecentMemoryProvider): Promise<void>
     void recentMemory.refresh(); // a sync may have added nodes the sidebar hasn't seen yet
   } catch (error) {
     await reportServerError(cliPath, error, 'sync');
+  }
+}
+
+/**
+ * Backs the sidebar's inline accept/dismiss buttons (package.json's
+ * `view/item/context` menu, keyed on `staleSuggestion`'s `contextValue`).
+ * 'accept' writes the supersede link the same way `nexusmem mark-stale`
+ * would; 'dismiss' only silences the suggestion. Either way, refresh the
+ * review list so the row disappears -- and refresh recent-memory too on
+ * accept, since that's the view whose ranking the supersede link affects.
+ */
+async function runResolveStaleSuggestion(
+  row: StaleReviewRow,
+  action: 'accept' | 'dismiss',
+  staleReview: StaleReviewProvider,
+  recentMemory: RecentMemoryProvider,
+): Promise<void> {
+  const folder = vscode.workspace.workspaceFolders?.[0];
+  if (!folder || !row.suggestion) return;
+
+  const cliPath = getCliPath();
+  try {
+    await resolveStaleSuggestion({
+      command: cliPath,
+      projectRoot: folder.uri.fsPath,
+      candidateId: row.suggestion.candidateId,
+      againstId: row.suggestion.againstId,
+      action,
+    });
+    void staleReview.refresh();
+    if (action === 'accept') void recentMemory.refresh();
+  } catch (error) {
+    await reportServerError(cliPath, error, action === 'accept' ? 'mark stale' : 'dismiss suggestion');
   }
 }
 

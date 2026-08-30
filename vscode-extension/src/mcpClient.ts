@@ -175,6 +175,65 @@ export interface SyncProjectResult {
  * user-initiated action with its own progress notification, not a
  * background check that needs to stay snappy.
  */
+export interface ListStaleSuggestionsOptions extends ServerOptions {
+  /** Max suggestions to return, most recently judged first. Default 50. */
+  limit?: number;
+}
+
+export interface StaleSuggestion {
+  candidateId: string;
+  candidateTitle: string;
+  againstId: string;
+  againstTitle: string;
+  reason: string | null;
+  checkedAt: number;
+}
+
+/** Open contradiction verdicts (from `stale --check-contradictions` or sync's automatic leg) nothing has acted on yet. */
+export async function listStaleSuggestions(options: ListStaleSuggestionsOptions): Promise<StaleSuggestion[]> {
+  return withServer(options, async (client) => {
+    const result = (await client.callTool(
+      { name: 'list_stale_suggestions', arguments: { projectRoot: options.projectRoot, limit: options.limit } },
+      undefined,
+      { timeout: 15_000 },
+    )) as ToolCallResult;
+
+    if (result.isError) {
+      throw new Error(firstTextContent(result) ?? 'list_stale_suggestions returned an error');
+    }
+
+    const structured = result.structuredContent as { suggestions?: StaleSuggestion[] } | undefined;
+    return structured?.suggestions ?? [];
+  });
+}
+
+export interface ResolveStaleSuggestionOptions extends ServerOptions {
+  candidateId: string;
+  action: 'accept' | 'dismiss';
+  /** Required for 'accept', ignored for 'dismiss'. */
+  againstId?: string;
+}
+
+/** 'accept' writes the supersede link (same effect as `mark-stale`); 'dismiss' silences the suggestion without touching ranking. */
+export async function resolveStaleSuggestion(options: ResolveStaleSuggestionOptions): Promise<string> {
+  return withServer(options, async (client) => {
+    const result = (await client.callTool(
+      {
+        name: 'resolve_stale_suggestion',
+        arguments: { projectRoot: options.projectRoot, candidateId: options.candidateId, action: options.action, againstId: options.againstId },
+      },
+      undefined,
+      { timeout: 15_000 },
+    )) as ToolCallResult;
+
+    if (result.isError) {
+      throw new Error(firstTextContent(result) ?? 'resolve_stale_suggestion returned an error');
+    }
+
+    return firstTextContent(result) ?? '';
+  });
+}
+
 export async function syncProject(options: ServerOptions): Promise<SyncProjectResult> {
   return withServer(options, async (client) => {
     const result = (await client.callTool(
