@@ -9,7 +9,26 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+
+- `nodes.retrieved_count`/`nodes.last_retrieved_at` (schema V12): retrieval outcomes are now recorded
+  instead of silently discarded. Bumped once per completed `nexusmem query`/MCP `search_memory` call,
+  for every node actually packed into the returned context (both CLI and MCP share one pipeline, so
+  both are covered from a single call site). Not yet folded into `rank.ts`'s score formula — every
+  existing ranking factor was tuned against real dogfooded queries and validated with `npm run eval`
+  before being trusted, and a new factor needs the same treatment. This release is the instrumentation
+  half only; confirmed eval-neutral (MRR 0.943 / Recall@5 0.964, unchanged).
+
+### Fixed
+
+- `nexusmem precheck`'s "What already failed here" warning implied the failure was located in the
+  flagged file, but the match is against basename word-tokens (`tokensForFile`) — a failing `npm run
+  precheck` flagged every file whose name contained that word, not just the one actually responsible.
+  Reworded to state what's actually true ("commands naming this file failed").
+- The high-churn warning in `nexusmem precheck` was rendered as a `WARN`, the same severity as the
+  dogfooded failure-correlation warning, despite `HIGH_CHURN_THRESHOLD` being an admitted, untuned
+  guess. Demoted to a lower-severity `note`, explicitly labeled as an untuned heuristic, so it no
+  longer reads as equally trustworthy.
 
 ## [0.10.0] — 2026-08-29
 
