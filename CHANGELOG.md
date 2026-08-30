@@ -9,7 +9,15 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Security
+
+- `shell_command` nodes never ran through the same secret-redaction pass `conversation_turn` and
+  `code_diff` nodes already get: a command like `export API_KEY=...` landed verbatim in `title`/`body`,
+  which is exactly what the FTS index and vector embeddings are built from — a secret typed at a
+  prompt could resurface later through `search_memory`/`nexusmem query`. Fixed by running `redact()`
+  over the command before it reaches those fields. `meta.command` is kept raw on purpose: project-id
+  reconciliation and failure/fix correlation both hash or exact-match against the real command text,
+  and redacting that copy too would have silently orphaned nodes on a project-id migration.
 
 ## [0.10.1] — 2026-08-30
 
