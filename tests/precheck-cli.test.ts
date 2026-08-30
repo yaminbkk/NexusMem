@@ -82,7 +82,7 @@ describe('nexusmem precheck', () => {
     const code = await runPrecheck({ cwd: dir, files: ['widget.ts'], out: (c) => chunks.push(c) });
 
     expect(code).toBe(0);
-    expect(chunks.join('')).toMatch(/What already failed here/);
+    expect(chunks.join('')).toMatch(/commands naming this file failed/);
     expect(chunks.join('')).toMatch(/npm run widget/);
   });
 

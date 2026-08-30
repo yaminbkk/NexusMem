@@ -75,7 +75,12 @@ export async function runPrecheck(opts: PrecheckOptions): Promise<number> {
     out(`  ${pc.bold(risk.path)}\n`);
 
     if (risk.unresolvedFailures.length > 0) {
-      out(`    ${pc.yellow('WARN')}  What already failed here (${risk.unresolvedFailures.length} unresolved):\n`);
+      // "naming this file", not "in this file": the match is against basename
+      // word-tokens (tokensForFile), so a failing `npm run precheck` flags
+      // every file whose name contains that word, not just the one actually
+      // responsible. Overclaiming location here would misdirect exactly the
+      // reader this warning is trying to help.
+      out(`    ${pc.yellow('WARN')}  commands naming this file failed, still unresolved (${risk.unresolvedFailures.length}):\n`);
       for (const f of risk.unresolvedFailures.slice(0, 3)) {
         out(`           ${pc.dim(`${f.ts.slice(0, 10)}  ${f.command.slice(0, 90)}`)}\n`);
       }
@@ -85,7 +90,11 @@ export async function runPrecheck(opts: PrecheckOptions): Promise<number> {
     }
 
     if (risk.commitsRecent >= HIGH_CHURN_THRESHOLD) {
-      out(`    ${pc.yellow('WARN')}  high churn: ${risk.commitsRecent} commits touched this file recently\n`);
+      // Lower severity and labeled as a heuristic on purpose: HIGH_CHURN_THRESHOLD
+      // is an untuned guess (see its own comment), unlike the failure-correlation
+      // WARN above, which reuses a threshold actually dogfooded against real
+      // links. Presenting both at the same WARN weight would overstate this one.
+      out(`    ${pc.dim('note')}  high churn (untuned heuristic): ${risk.commitsRecent} commits touched this file recently\n`);
     }
 
     out('\n');
