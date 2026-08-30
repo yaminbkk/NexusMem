@@ -6,10 +6,12 @@ transcripts, and (if enabled) github.com issue/PR threads — from the command p
 the editor.
 
 This is an early, minimal surface: a search command, a read-only results panel, a sidebar list of
-what's been remembered lately, a sync command, and a proactive check when a terminal command fails. It
-talks to the same MCP server ([`nexusmem mcp`](../README.md)) that Claude Desktop, Cursor and Windsurf
-already use against this codebase — no new server-side surface for search, sync or live detection, just
-a client for the existing one (plus one new tool, `list_recent_memory`, for the sidebar).
+what's been remembered lately, a review queue for AI-flagged contradictions, a sync command, a proactive
+check when a terminal command fails, and an `@nexusmem` participant in Copilot Chat. It talks to the same
+MCP server ([`nexusmem mcp`](../README.md)) that Claude Desktop, Cursor and Windsurf already use against
+this codebase — no new server-side surface for search, sync or live detection, just a client for the
+existing one (plus three new tools: `list_recent_memory` for the sidebar, and
+`list_stale_suggestions`/`resolve_stale_suggestion` for the review queue).
 
 ![A command fails in the integrated terminal; NexusMem recognizes it and notifies "NexusMem has seen \"npm whoami\" fail before."](screenshot-notification.png)
 
@@ -52,6 +54,23 @@ The Explorer view (`Ctrl+Shift+E` / `Cmd+Shift+E`) gains a **NexusMem: Recent Me
 recently remembered items for the open repository, newest first — chronology, not a search. Click a
 row to search for it (pre-fills the query above with that item's title). Refresh with the ↻ button in
 the panel's title bar; it also loads once automatically when the extension activates.
+
+### Memory Review sidebar
+
+A second Explorer view, **NexusMem: Memory Review**, lists open contradiction suggestions — cases where
+`nexusmem stale --check-contradictions` (or a normal sync's own automatic leg) found a newer node the
+local SLM judged as contradicting an older one. Each row shows both nodes and the model's reason, with
+two inline buttons: a checkmark to **accept** (writes the same supersede link `nexusmem mark-stale`
+would — the ranker down-weights the old node but never deletes it) and an **✕** to dismiss (silences the
+suggestion without touching ranking). Refresh with the ↻ button in the panel's title bar.
+
+### Chat Participant
+
+Ask about this repository's remembered history directly in Copilot Chat (or any client implementing VS
+Code's chat participant API) — type `@nexusmem` followed by a question, no command palette or MCP setup
+required. Retrieves the same packed context block **NexusMem: Search Memory** uses, then asks the chat
+panel's own currently-selected model to answer your actual question from it, streamed back as a real
+synthesized answer rather than the raw retrieved block.
 
 ### Live terminal-failure detection
 

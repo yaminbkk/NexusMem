@@ -2,7 +2,7 @@
   "name": "nexusmem-vscode",
   "displayName": "NexusMem",
   "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations, github issues/PRs) from the command palette, a sidebar of what's been remembered lately, an in-editor sync command, a proactive check when a terminal command fails, a review queue for AI-flagged contradictions, and an @nexusmem chat participant in Copilot Chat.",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "icon": "icon.png",
   "license": "MIT",
   "repository": {

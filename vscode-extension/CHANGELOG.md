@@ -4,6 +4,16 @@ Notable changes to the NexusMem VS Code extension. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] — 2026-08-30
+
+### Added
+
+- **`@nexusmem` chat participant** — ask about this repository's remembered history directly in Copilot Chat
+  (or any client implementing VS Code's chat participant API), no MCP setup required. Retrieves the same
+  packed context block `search_memory` always has, then asks the chat panel's own currently-selected model
+  to synthesize an answer from it — a real answer, not just the raw retrieved block. Requires
+  `engines.vscode` `^1.100.0`, bumped from `^1.90.0` for this API.
+
 ## [0.2.0] — 2026-08-30
 
 ### Added
