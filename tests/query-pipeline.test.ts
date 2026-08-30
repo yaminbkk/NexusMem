@@ -35,6 +35,61 @@ function node(overrides: Partial<MemoryNode> & Pick<MemoryNode, 'id'>): MemoryNo
   };
 }
 
+describe('runHybridQuery -- retrieval bookkeeping', () => {
+  let dir: string;
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-query-pipeline-retrieval-'));
+    store = MemoryStore.open(join(dir, 'memory.db'));
+  });
+
+  afterEach(() => {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('bumps retrieved_count/last_retrieved_at only for nodes actually packed into the result', async () => {
+    store.upsertNodes([
+      node({ id: 'matched', title: 'npm publish OTP error', body: 'npm publish OTP error' }),
+      node({ id: 'unrelated', title: 'kubernetes ingress rules', body: 'kubernetes ingress rules' }),
+    ]);
+
+    const before = Date.now();
+    await runHybridQuery(store, PROJECT, 'npm publish OTP', { budget: 2000, candidates: 30 });
+
+    const matched = store.getRetrievalStats('matched');
+    const unrelated = store.getRetrievalStats('unrelated');
+
+    expect(matched).not.toBeNull();
+    expect(matched!.retrievedCount).toBe(1);
+    expect(matched!.lastRetrievedAt).toBeGreaterThanOrEqual(before);
+
+    // discriminating: a node the query never surfaced must not move at all
+    expect(unrelated).toEqual({ retrievedCount: 0, lastRetrievedAt: null });
+  });
+
+  it('accumulates across repeated queries instead of resetting', async () => {
+    store.upsertNodes([node({ id: 'matched', title: 'npm publish OTP error', body: 'npm publish OTP error' })]);
+
+    await runHybridQuery(store, PROJECT, 'npm publish OTP', { budget: 2000, candidates: 30 });
+    await runHybridQuery(store, PROJECT, 'npm publish OTP', { budget: 2000, candidates: 30 });
+
+    expect(store.getRetrievalStats('matched')!.retrievedCount).toBe(2);
+  });
+
+  it('does not reset retrieval history on re-sync -- same exclusion rule as supersedes/trust_state', async () => {
+    store.upsertNodes([node({ id: 'matched', title: 'npm publish OTP error', body: 'npm publish OTP error' })]);
+    await runHybridQuery(store, PROJECT, 'npm publish OTP', { budget: 2000, candidates: 30 });
+    expect(store.getRetrievalStats('matched')!.retrievedCount).toBe(1);
+
+    // A re-sync with a genuinely changed body still goes through upsertNodes' UPDATE path.
+    store.upsertNodes([node({ id: 'matched', title: 'npm publish OTP error', body: 'npm publish OTP error, now with more detail' })]);
+
+    expect(store.getRetrievalStats('matched')!.retrievedCount).toBe(1);
+  });
+});
+
 describe('runHybridQuery -- pulling in a failure\'s linked resolution', () => {
   let dir: string;
   let store: MemoryStore;

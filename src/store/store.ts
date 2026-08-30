@@ -24,10 +24,12 @@ import {
   getNodeProjectId,
   countStaleCandidates,
   getNodesByIds,
+  getRetrievalStats,
   getSupersededIds,
   listRecentNodes,
   listStaleCandidates,
   pruneSourceNodes,
+  recordRetrievals,
   setSupersedes,
   setTrustState,
   upsertNodes,
@@ -341,6 +343,16 @@ export class MemoryStore {
   /** Same criteria as `listStaleCandidates`, but just the count -- for `status`'s summary line. */
   countStaleCandidates(projectId: string, opts: { now?: Date; minAgeDays?: number } = {}): number {
     return countStaleCandidates(this.db, projectId, opts);
+  }
+
+  /** Bump retrieval bookkeeping for nodes actually packed into a query result. See `nodes.ts`'s `recordRetrievals` for why this doesn't touch ranking. */
+  recordRetrievals(ids: readonly string[]): void {
+    recordRetrievals(this.db, ids);
+  }
+
+  /** Retrieval bookkeeping for one node, or null if it doesn't exist. Mainly for tests. */
+  getRetrievalStats(id: string): { retrievedCount: number; lastRetrievedAt: number | null } | null {
+    return getRetrievalStats(this.db, id);
   }
 
   /** Memoize one SLM contradiction judgment (either verdict). Suggest-only: never writes `supersedes`. */

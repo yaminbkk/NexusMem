@@ -180,8 +180,28 @@ export async function runCrossProjectQuery(
     rankHits(hits, { halfLifeDays: opts.halfLifeDays, relevanceScores, supersededIds }),
   );
   const packed = packContext(ranked, opts.budget, { query });
+  recordRetrievalsByProject(storeByLabel, packed.nodes);
 
   return { bm25Count, vectorCount, hits, packed, perProject };
+}
+
+/**
+ * `recordRetrievals` is per-database, but one cross-project packed result can
+ * hold nodes from several source stores at once -- group by the `project`
+ * label `runCrossProjectQuery` already stamps on every hit (see `label`
+ * above) and bump each source's own database once.
+ */
+function recordRetrievalsByProject(storeByLabel: ReadonlyMap<string, MemoryStore>, nodes: readonly { id: string; project?: string }[]): void {
+  const idsByLabel = new Map<string, string[]>();
+  for (const node of nodes) {
+    if (!node.project) continue;
+    const ids = idsByLabel.get(node.project) ?? [];
+    ids.push(node.id);
+    idsByLabel.set(node.project, ids);
+  }
+  for (const [label, ids] of idsByLabel) {
+    storeByLabel.get(label)?.recordRetrievals(ids);
+  }
 }
 
 /**
@@ -215,6 +235,7 @@ export async function runHybridQuery(
   // The query reaches the packer as well as the searcher: for a diff node it
   // decides which hunk of an already-retrieved patch is worth the budget.
   const packed = packContext(ranked, opts.budget, { query });
+  store.recordRetrievals(packed.nodes.map((n) => n.id));
 
   return { bm25Count: bm25Hits.length, vectorCount: vectorHits.length, hits, packed };
 }

@@ -243,6 +243,23 @@ describe('runCrossProjectQuery', () => {
     expect(makeNodeId('proj-alpha', 'git_commit', 'abc123')).not.toBe(makeNodeId('proj-beta', 'git_commit', 'abc123'));
     expect(makeNodeId('proj-alpha', 'git_commit', 'abc123')).toBe(makeNodeId('proj-alpha', 'git_commit', 'abc123'));
   });
+
+  it('bumps retrieval bookkeeping in each hit\'s own source database, not just the querying one', async () => {
+    const alpha = sourceWith('alpha', [
+      node('a1', 'proj-alpha', 'fix: retry the flaky spawn', 'The spawn failed intermittently on Windows.'),
+    ]);
+    const beta = sourceWith('beta', [
+      node('b1', 'proj-beta', 'fix: spawn the worker pool lazily', 'Spawn cost dominated startup.'),
+    ]);
+
+    await runCrossProjectQuery([alpha, beta], 'spawn', queryOpts);
+
+    // discriminating: each store only knows about its own node -- a bug that
+    // recorded every id against the first store (or only the querying repo's
+    // own db, if this were routed through one) would misattribute one of these.
+    expect(alpha.store.getRetrievalStats('a1')!.retrievedCount).toBe(1);
+    expect(beta.store.getRetrievalStats('b1')!.retrievedCount).toBe(1);
+  });
 });
 
 describe('openAllProjectSources', () => {

@@ -342,6 +342,31 @@ export function listStaleCandidates(
   }));
 }
 
+/**
+ * Bump retrieval bookkeeping for nodes that were actually packed into a
+ * query's returned context (see `packContext`) -- called once per completed
+ * `runHybridQuery`/`runCrossProjectQuery`, the one pipeline both `nexusmem
+ * query` and the MCP `search_memory` tool share, so both stay covered from
+ * one call site. `retrieved_count`/`last_retrieved_at` (schema V12) are
+ * intentionally not read by `rank.ts`'s score formula; see that migration's
+ * comment for why folding this into ranking is a separate, deferred step.
+ */
+export function recordRetrievals(db: Database, ids: readonly string[]): void {
+  if (ids.length === 0) return;
+  db.prepare(
+    `UPDATE nodes SET retrieved_count = retrieved_count + 1, last_retrieved_at = @now
+     WHERE id IN (SELECT value FROM json_each(@ids))`,
+  ).run({ now: Date.now(), ids: JSON.stringify(ids) });
+}
+
+/** Retrieval bookkeeping for one node, or null if it doesn't exist. Read-side for `recordRetrievals`, mainly for tests. */
+export function getRetrievalStats(db: Database, id: string): { retrievedCount: number; lastRetrievedAt: number | null } | null {
+  const row = db.prepare('SELECT retrieved_count AS retrievedCount, last_retrieved_at AS lastRetrievedAt FROM nodes WHERE id = ?').get(
+    id,
+  ) as { retrievedCount: number; lastRetrievedAt: number | null } | undefined;
+  return row ?? null;
+}
+
 /** Same criteria as {@link listStaleCandidates}, but just the count -- for `status`'s summary line. */
 export function countStaleCandidates(db: Database, projectId: string, opts: { now?: Date; minAgeDays?: number } = {}): number {
   const now = opts.now ?? new Date();

@@ -301,6 +301,26 @@ INSERT INTO nodes_vec (rowid, project_id, embedding)
 DROP TABLE nodes_vec_stage;
 `;
 
+// `signal` (a node's structural importance) is computed once at ingest and
+// never revisited -- these two columns are the concrete plumbing for closing
+// that gap: how often a node was actually packed into a returned query result
+// (`retrieved_count`), and when that last happened (`last_retrieved_at`).
+// Deliberately excluded from upsertNodes' INSERT columns and its ON CONFLICT
+// SET clause, same rule `supersedes`/`trust_state` already follow (see V10):
+// a re-sync must never reset retrieval history, and DEFAULT 0 / NULL already
+// gives every new node the right starting value.
+//
+// Not read by rank.ts's score formula yet, and shipping that is a separate,
+// deliberately deferred decision -- every existing factor in that formula
+// (SIGNAL_EXPONENT, MAX_PRIOR_OVERTURN, ...) was tuned against real dogfooded
+// queries and validated with eval/queries.json before it was trusted; folding
+// an untested new factor into a formula every query depends on needs the same
+// treatment, not a drive-by add.
+const V12 = `
+ALTER TABLE nodes ADD COLUMN retrieved_count INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE nodes ADD COLUMN last_retrieved_at INTEGER;
+`;
+
 interface Migration {
   version: number;
   up: (db: Database) => void;
@@ -319,6 +339,7 @@ export const MIGRATIONS: Migration[] = [
   { version: 9, up: (db) => db.exec(V9) },
   { version: 10, up: (db) => db.exec(V10) },
   { version: 11, up: (db) => db.exec(V11) },
+  { version: 12, up: (db) => db.exec(V12) },
 ];
 
 export const LATEST_SCHEMA_VERSION = MIGRATIONS[MIGRATIONS.length - 1]?.version ?? 0;
