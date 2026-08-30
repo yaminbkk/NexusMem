@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { listRecentMemory, searchMemory, ServerNotFoundError, syncProject } from '../src/mcpClient.js';
 // Reuses the root project's own hardened git fixture helper (handles the
 // intermittent Windows `git` crash this project has already been bitten by)
@@ -22,27 +22,16 @@ function initGitRepo(dir: string): void {
   g('commit', '-q', '-m', 'fix: handle the retry timeout correctly\n\nThe old code retried forever instead of giving up after N attempts.');
 }
 
-function buildRootCli(): void {
-  execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['run', 'build'], {
-    cwd: ROOT,
-    stdio: 'pipe',
-    shell: process.platform === 'win32',
-  });
-}
-
 function syncRepo(dir: string, env: Record<string, string>): void {
   execFileSync(process.execPath, [BUILT_CLI, 'init'], { cwd: dir, env, stdio: 'pipe' });
   execFileSync(process.execPath, [BUILT_CLI, 'sync', '--no-embed'], { cwd: dir, env, stdio: 'pipe' });
 }
 
-// One file-scoped build, not one per describe block: two independent
-// `npm run build` invocations against the same root `dist/` would be
-// wasteful at best and a real race at worst (tsup cleans the output folder
-// before writing), and doubles exposure to this machine's own documented
-// bursty build/spawn flakiness for no benefit.
-beforeAll(() => {
-  buildRootCli();
-});
+// CLI is built once, before any test file runs (root or vscode-extension)
+// -- see ../../tests/global-setup.ts. Used to be a file-scoped `beforeAll`
+// here, but that raced tests/mcp.test.ts's own independent build against
+// the same `dist/` (tsup clears its output directory before writing);
+// confirmed as the cause of three real nightly flake-rate failures.
 
 describe('mcpClient.searchMemory (real stdio child process)', () => {
   let repoDir: string;

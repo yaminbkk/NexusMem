@@ -1,12 +1,11 @@
-import { execFileSync } from 'node:child_process';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/mcp/server.js';
 import { getStatus, listRecentMemory, listStaleSuggestions, resolveStaleSuggestion, searchMemory, syncProject } from '../src/mcp/tools.js';
 import { MemoryStore } from '../src/store/store.js';
@@ -14,9 +13,7 @@ import { makeProjectId } from '../src/core/project.js';
 import { resolveWorkspace } from '../src/config/workspace.js';
 import { gitFixture } from './helpers.js';
 
-const REPO_ROOT = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const BUILT_CLI = fileURLToPath(new URL('../dist/cli/index.js', import.meta.url));
-const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 interface ToolTextResult {
   content: Array<{ type: string; text: string }>;
@@ -39,14 +36,6 @@ function initGitRepo(dir: string): void {
   writeFileSync(join(dir, 'a.txt'), 'hello\n');
   g('add', '.');
   g('commit', '-q', '-m', 'fix: handle the retry timeout correctly\n\nThe old code retried forever instead of giving up after N attempts.');
-}
-
-function buildCli(): void {
-  execFileSync(npmCommand, ['run', 'build'], {
-    cwd: REPO_ROOT,
-    stdio: 'pipe',
-    shell: process.platform === 'win32',
-  });
 }
 
 function denyFetchPreload(dir: string): string {
@@ -475,10 +464,7 @@ describe('mcp server over real stdio child process', () => {
   let repoDir: string;
   let preloadPath: string;
 
-  beforeAll(() => {
-    buildCli();
-  });
-
+  // CLI is built once, before any test file runs -- see tests/global-setup.ts.
   beforeEach(() => {
     repoDir = mkdtempSync(join(tmpdir(), 'nexusmem-mcp-stdio-'));
     initGitRepo(repoDir);
