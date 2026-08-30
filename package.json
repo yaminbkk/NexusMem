@@ -1,6 +1,6 @@
 {
   "name": "nexusmem",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Local-first persistent memory for AI coding agents. Indexes git history, shell commands with exit codes, project docs and (opt-in) assistant transcripts into an embedded SQLite database, then serves back a ranked, token-budgeted context slice over MCP or the CLI.",
   "mcpName": "io.github.yaminbkk/nexusmem",
   "license": "MIT",
