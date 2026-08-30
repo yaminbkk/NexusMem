@@ -9,6 +9,10 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [0.10.2] — 2026-08-30
+
 ### Security
 
 - `shell_command` nodes never ran through the same secret-redaction pass `conversation_turn` and
