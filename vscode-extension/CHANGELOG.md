@@ -4,6 +4,12 @@ Notable changes to the NexusMem VS Code extension. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] — 2026-08-30
+
+No functional changes. Version bump only, requested alongside root NexusMem `v0.10.2`'s release; this
+release touched no extension code or MCP response shape (see `v0.10.2`'s own changelog entry, a
+`shell_command` redaction fix in the server).
+
 ## [0.3.0] — 2026-08-30
 
 ### Added
