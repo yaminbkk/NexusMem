@@ -4,6 +4,18 @@ Notable changes to the NexusMem VS Code extension. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] — 2026-08-30
+
+### Added
+
+- **NexusMem: Memory Review sidebar** — lists open contradiction suggestions (from
+  `nexusmem stale --check-contradictions`, or sync's own automatic leg) that nothing has acted on yet.
+  Each row shows the older, likely-stale memory and which newer node the local SLM judged as
+  contradicting it, with two inline buttons: a checkmark to accept (writes the same supersede link
+  `nexusmem mark-stale` would) and an X to dismiss (silences the suggestion without touching ranking).
+  Backed by two new MCP tools, `list_stale_suggestions` and `resolve_stale_suggestion`, on the root
+  project's server. Accepting refreshes the Recent Memory sidebar too, since ranking just changed.
+
 ## [0.1.1] — 2026-08-29
 
 No functional changes. `package.json`'s description, `README.md` and a `mcpClient.ts` doc comment
