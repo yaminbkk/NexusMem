@@ -5,6 +5,7 @@ import { RecentMemoryProvider } from './recentMemoryView.js';
 import { StaleReviewProvider } from './staleReviewView.js';
 import type { StaleReviewRow } from './staleReviewRows.js';
 import { shouldCheckFailure, shouldNotify, truncateForNotification } from './failureDetection.js';
+import { buildContextPrompt, describeLanguageModelErrorCode, describeSearchError } from './chatPrompt.js';
 
 function getCliPath(): string {
   return vscode.workspace.getConfiguration('nexusmem').get<string>('cliPath', 'nexusmem');
@@ -38,6 +39,66 @@ export function activate(context: vscode.ExtensionContext): void {
   void recentMemory.refresh();
   void staleReview.refresh();
   registerLiveFailureDetection(context);
+  registerChatParticipant(context);
+}
+
+/**
+ * `@nexusmem` in Copilot Chat (or any client implementing VS Code's chat
+ * participant API) -- reaches whoever is already in a chat panel without
+ * requiring them to know MCP exists, unlike every other surface this
+ * extension exposes. Retrieves the same packed context block `search_memory`
+ * always has, then asks the chat panel's own currently-selected model to
+ * answer the user's actual question from it -- a synthesized answer, not
+ * just the raw retrieved block the command-palette search already shows.
+ */
+function registerChatParticipant(context: vscode.ExtensionContext): void {
+  const participant = vscode.chat.createChatParticipant('nexusmem.chat', async (request, _chatContext, stream, token) => {
+    const folder = vscode.workspace.workspaceFolders?.[0];
+    if (!folder) {
+      stream.markdown('Open a folder or workspace first so NexusMem knows which repository to search.');
+      return;
+    }
+
+    stream.progress('Searching NexusMem memory…');
+
+    let result: SearchMemoryResult;
+    try {
+      result = await searchMemory({ command: getCliPath(), projectRoot: folder.uri.fsPath, query: request.prompt });
+    } catch (error) {
+      const description = describeSearchError(error);
+      stream.markdown(description.message);
+      if (description.showCliPathSetting) {
+        stream.button({ command: 'workbench.action.openSettings', title: 'Open nexusmem.cliPath setting', arguments: ['nexusmem.cliPath'] });
+      }
+      return;
+    }
+
+    if (result.matched === 0) {
+      stream.markdown("Nothing in this repository's NexusMem memory answers that.");
+      return;
+    }
+
+    try {
+      const messages = [vscode.LanguageModelChatMessage.User(buildContextPrompt(result.text)), vscode.LanguageModelChatMessage.User(request.prompt)];
+      const response = await request.model.sendRequest(
+        messages,
+        { justification: "Answer the user's question using memory retrieved from this repository's NexusMem database." },
+        token,
+      );
+      for await (const fragment of response.text) {
+        stream.markdown(fragment);
+      }
+    } catch (error) {
+      const message =
+        error instanceof vscode.LanguageModelError
+          ? describeLanguageModelErrorCode(error.code)
+          : "Something went wrong asking the language model to answer from NexusMem's memory. The raw retrieved context is shown below instead.";
+      stream.markdown(`${message}\n\n---\n\n${result.text}`);
+    }
+  });
+
+  participant.iconPath = vscode.Uri.joinPath(context.extensionUri, 'icon.png');
+  context.subscriptions.push(participant);
 }
 
 /**

@@ -1,7 +1,7 @@
 {
   "name": "nexusmem-vscode",
   "displayName": "NexusMem",
-  "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations, github issues/PRs) from the command palette, a sidebar of what's been remembered lately, an in-editor sync command, a proactive check when a terminal command fails, and a review queue for AI-flagged contradictions.",
+  "description": "Search a NexusMem-tracked repository's remembered history (git, diffs, shell, docs, conversations, github issues/PRs) from the command palette, a sidebar of what's been remembered lately, an in-editor sync command, a proactive check when a terminal command fails, a review queue for AI-flagged contradictions, and an @nexusmem chat participant in Copilot Chat.",
   "version": "0.2.0",
   "icon": "icon.png",
   "license": "MIT",
@@ -12,7 +12,7 @@
   },
   "publisher": "yaminbkk",
   "engines": {
-    "vscode": "^1.90.0",
+    "vscode": "^1.100.0",
     "node": ">=22"
   },
   "categories": [
@@ -22,11 +22,21 @@
     "nexusmem",
     "memory",
     "mcp",
-    "search"
+    "search",
+    "chat"
   ],
   "main": "./dist/extension.js",
   "activationEvents": [],
   "contributes": {
+    "chatParticipants": [
+      {
+        "id": "nexusmem.chat",
+        "name": "nexusmem",
+        "fullName": "NexusMem",
+        "description": "Ask about this repository's remembered history -- git, diffs, shell, docs, conversations, github issues/PRs.",
+        "isSticky": true
+      }
+    ],
     "commands": [
       {
         "command": "nexusmem.searchMemory",
@@ -133,7 +143,7 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
-    "@types/vscode": "^1.90.0",
+    "@types/vscode": "^1.100.0",
     "@vscode/vsce": "^3.9.2",
     "esbuild": "^0.28.1",
     "typescript": "^5.8.0",
