@@ -1,3 +1,4 @@
+import { redact } from '../conversation/redact.js';
 import { makeNodeId } from '../core/ids.js';
 import { truncate } from '../core/text.js';
 import type { MemoryNode } from '../core/types.js';
@@ -50,8 +51,8 @@ export function scoreShellCommand(entry: RawShellEntry): number {
   return Number(Math.min(1, Math.max(0.05, score)).toFixed(3));
 }
 
-function renderBody(entry: RawShellEntry, maxChars: number): string {
-  const parts = [`$ ${entry.command}`];
+function renderBody(entry: RawShellEntry, command: string, maxChars: number): string {
+  const parts = [`$ ${command}`];
   const metaLine: string[] = [];
   if (entry.cwd) metaLine.push(`cwd: ${entry.cwd}`);
   if (entry.exitCode !== null) metaLine.push(`exit: ${entry.exitCode}`);
@@ -62,7 +63,18 @@ function renderBody(entry: RawShellEntry, maxChars: number): string {
 
 export function toMemoryNode(entry: RawShellEntry, projectId: string, opts: ShellCollectorOptions = {}): MemoryNode {
   const maxBody = opts.maxBodyChars ?? DEFAULT_MAX_BODY_CHARS;
-  const titleLine = entry.command.split(/\r?\n/)[0] ?? entry.command;
+  // Redacted separately from `entry.command`: title/body are what actually
+  // land in the FTS index and the vector embeddings (see vector/sync.ts),
+  // and from there in `search_memory` results -- a secret typed at a prompt
+  // (`export TOKEN=...`, a bearer header, a connection string) must not
+  // travel that path back into a future LLM context. `meta.command` below is
+  // kept raw on purpose: reconcile.ts rehashes it to reproduce the exact id
+  // `shell/detect.ts` derives from the live hook log, and
+  // correlate/failure-fix.ts exact-matches it against a re-run command --
+  // both would silently break (nodes going dark, the way a real project-id
+  // rename once did) if this copy stopped matching the raw source text.
+  const { text: redactedCommand } = redact(entry.command);
+  const titleLine = redactedCommand.split(/\r?\n/)[0] ?? redactedCommand;
 
   return {
     id: makeNodeId(projectId, 'shell_command', entry.naturalKey),
@@ -71,7 +83,7 @@ export function toMemoryNode(entry: RawShellEntry, projectId: string, opts: Shel
     ts: entry.ts,
     source: `shell:${entry.shell}`,
     title: truncate(titleLine, MAX_TITLE_CHARS),
-    body: renderBody(entry, maxBody),
+    body: renderBody(entry, redactedCommand, maxBody),
     files: [],
     signal: scoreShellCommand(entry),
     provenance: 'observed',

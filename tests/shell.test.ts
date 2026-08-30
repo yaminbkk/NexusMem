@@ -173,6 +173,22 @@ describe('toMemoryNode (shell)', () => {
   it('has no files, unlike a git commit node', () => {
     expect(toMemoryNode(entry, 'proj1').files).toEqual([]);
   });
+
+  it('redacts a secret out of title/body -- the fields that reach the FTS index and embeddings -- while keeping meta.command raw for reconcile/failure-fix matching', () => {
+    const withSecret: RawShellEntry = { ...entry, command: 'export API_KEY=sk_live_abcdef1234567890' };
+    const node = toMemoryNode(withSecret, 'proj1');
+
+    expect(node.title).not.toContain('sk_live_abcdef1234567890');
+    expect(node.body).not.toContain('sk_live_abcdef1234567890');
+    expect(node.title).toContain('[redacted]');
+    expect(node.body).toContain('[redacted]');
+
+    // meta.command must stay byte-for-byte the raw command: reconcile.ts
+    // rehashes it to reproduce the id shell/detect.ts derives from the live
+    // hook log, and correlate/failure-fix.ts exact-matches it against a
+    // re-run command. Redacting this copy too would silently break both.
+    expect(node.meta.command).toBe('export API_KEY=sk_live_abcdef1234567890');
+  });
 });
 
 describe('collectShellHistory', () => {
