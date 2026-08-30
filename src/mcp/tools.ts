@@ -6,9 +6,11 @@ import { runCrossProjectQuery, runHybridQuery } from '../retrieval/query-pipelin
 import { openAllProjectSources } from '../retrieval/sources.js';
 import { resolveWorkspace } from '../config/workspace.js';
 import { MemoryStore, type RecentNode } from '../store/store.js';
+import type { ContradictionSuggestionRow } from '../store/contradictions.js';
 import { OllamaEmbeddingProvider } from '../vector/embed.js';
 import { runInit } from '../cli/commands/init.js';
 import { runSync, type SyncOptions } from '../cli/commands/sync.js';
+import { runMarkStale } from '../cli/commands/mark-stale.js';
 
 /**
  * Thin MCP-facing wrappers over the same CLI logic (`runSync`, the hybrid
@@ -224,4 +226,89 @@ export async function getStatus(input: GetStatusInput): Promise<GetStatusOutput>
   } finally {
     store.close();
   }
+}
+
+export interface ListStaleSuggestionsInput {
+  projectRoot: string;
+  /** Max suggestions to return, most recently judged first. Default 50. */
+  limit?: number;
+}
+
+export interface ListStaleSuggestionsOutput {
+  suggestions: ContradictionSuggestionRow[];
+}
+
+/**
+ * Open contradiction verdicts (from `nexusmem stale --check-contradictions`,
+ * or sync's own automatic leg) that no human has acted on yet -- the same
+ * "open" definition `nexusmem stale`'s plain listing decorates with, not a
+ * fresh SLM pass. Built for the VS Code extension's review sidebar, which
+ * lists standing suggestions rather than triggering new judgments.
+ */
+export async function listStaleSuggestions(input: ListStaleSuggestionsInput): Promise<ListStaleSuggestionsOutput> {
+  const repo = await readRepoInfo(input.projectRoot);
+  const ws = resolveWorkspace(repo.root);
+  const projectId = makeProjectId({ root: repo.root, originUrl: repo.originUrl });
+
+  const store = MemoryStore.open(ws.dbPath);
+  try {
+    return { suggestions: store.listContradictionSuggestions(projectId, { limit: input.limit }) };
+  } finally {
+    store.close();
+  }
+}
+
+export interface ResolveStaleSuggestionInput {
+  projectRoot: string;
+  /** The stale/superseded side of the suggestion. */
+  candidateId: string;
+  /** 'accept' writes the supersede link (same effect as `mark-stale`); 'dismiss' silences the suggestion without touching ranking. */
+  action: 'accept' | 'dismiss';
+  /** The newer, superseding node. Required for 'accept', ignored for 'dismiss'. */
+  againstId?: string;
+}
+
+export interface ResolveStaleSuggestionOutput {
+  summary: string;
+}
+
+/**
+ * 'accept' reuses `runMarkStale` itself (not just its store call), so the
+ * same-project validation and the human-readable summary stay in one place.
+ * 'dismiss' has no comparable CLI command function to reuse -- `nexusmem
+ * stale --dismiss` is a single store call wrapped in listing logic this tool
+ * doesn't need -- so it goes straight to the store, same as `listRecentMemory`
+ * above does for its own single-call read.
+ */
+export async function resolveStaleSuggestion(input: ResolveStaleSuggestionInput): Promise<ResolveStaleSuggestionOutput> {
+  if (input.action === 'dismiss') {
+    const repo = await readRepoInfo(input.projectRoot);
+    const ws = resolveWorkspace(repo.root);
+    const projectId = makeProjectId({ root: repo.root, originUrl: repo.originUrl });
+
+    const store = MemoryStore.open(ws.dbPath);
+    try {
+      const dismissed = store.dismissContradictionSuggestion(projectId, input.candidateId);
+      return {
+        summary: dismissed > 0
+          ? `dismissed the contradiction suggestion for ${input.candidateId}`
+          : `no open contradiction suggestion for ${input.candidateId}`,
+      };
+    } finally {
+      store.close();
+    }
+  }
+
+  if (!input.againstId) {
+    throw new Error('againstId is required to accept a stale suggestion');
+  }
+
+  const chunks: string[] = [];
+  await runMarkStale({
+    cwd: input.projectRoot,
+    nodeId: input.candidateId,
+    supersedesId: input.againstId,
+    out: (chunk) => chunks.push(chunk),
+  });
+  return { summary: stripAnsi(chunks.join('').trim()) };
 }

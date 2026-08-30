@@ -8,9 +8,10 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createServer } from '../src/mcp/server.js';
-import { getStatus, listRecentMemory, searchMemory, syncProject } from '../src/mcp/tools.js';
+import { getStatus, listRecentMemory, listStaleSuggestions, resolveStaleSuggestion, searchMemory, syncProject } from '../src/mcp/tools.js';
 import { MemoryStore } from '../src/store/store.js';
 import { makeProjectId } from '../src/core/project.js';
+import { resolveWorkspace } from '../src/config/workspace.js';
 import { gitFixture } from './helpers.js';
 
 const REPO_ROOT = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
@@ -179,6 +180,95 @@ describe('mcp tools', () => {
     await syncProject({ projectRoot: repoDir, noEmbed: true });
     const result = await listRecentMemory({ projectRoot: repoDir, limit: 1 });
     expect(result.items).toHaveLength(1);
+  });
+
+  it('list_stale_suggestions surfaces a recorded contradiction, resolve_stale_suggestion accepts it', async () => {
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+    const candidateId = (await listRecentMemory({ projectRoot: repoDir })).items[0]!.id;
+
+    writeFileSync(join(repoDir, 'b.txt'), 'x\n');
+    gitFixture(repoDir, ['add', '.']);
+    gitFixture(repoDir, ['commit', '-q', '-m', 'fix: a newer, superseding commit'], {
+      // Explicit, far-future dates: two commits made back-to-back in a fast
+      // test run can tie at git's 1-second resolution otherwise, making
+      // listRecentMemory's "newest first" order undefined between them --
+      // same fix as the "reflects a sync, newest first" case above.
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'T',
+        GIT_AUTHOR_EMAIL: 't@example.com',
+        GIT_COMMITTER_NAME: 'T',
+        GIT_COMMITTER_EMAIL: 't@example.com',
+        GIT_AUTHOR_DATE: '2030-01-01T00:00:00+00:00',
+        GIT_COMMITTER_DATE: '2030-01-01T00:00:00+00:00',
+      },
+    });
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+    const againstId = (await listRecentMemory({ projectRoot: repoDir })).items[0]!.id;
+    expect(againstId).not.toBe(candidateId);
+
+    const store = MemoryStore.open(resolveWorkspace(repoDir).dbPath);
+    try {
+      store.recordContradictionCheck({ candidateId, againstId, contradicts: true, reason: 'superseded in test', model: 'test-model' });
+    } finally {
+      store.close();
+    }
+
+    const before = await listStaleSuggestions({ projectRoot: repoDir });
+    expect(before.suggestions).toHaveLength(1);
+    expect(before.suggestions[0]).toMatchObject({ candidateId, againstId, reason: 'superseded in test' });
+
+    const accepted = await resolveStaleSuggestion({ projectRoot: repoDir, candidateId, action: 'accept', againstId });
+    expect(accepted.summary).toContain('marked stale');
+
+    // Accepted -> setSupersedes was written, so the suggestion is no longer "open".
+    const after = await listStaleSuggestions({ projectRoot: repoDir });
+    expect(after.suggestions).toHaveLength(0);
+  });
+
+  it('resolve_stale_suggestion with action "dismiss" silences the suggestion without touching ranking', async () => {
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+    const candidateId = (await listRecentMemory({ projectRoot: repoDir })).items[0]!.id;
+
+    writeFileSync(join(repoDir, 'b.txt'), 'x\n');
+    gitFixture(repoDir, ['add', '.']);
+    gitFixture(repoDir, ['commit', '-q', '-m', 'fix: another superseding commit'], {
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 'T',
+        GIT_AUTHOR_EMAIL: 't@example.com',
+        GIT_COMMITTER_NAME: 'T',
+        GIT_COMMITTER_EMAIL: 't@example.com',
+        GIT_AUTHOR_DATE: '2030-01-01T00:00:00+00:00',
+        GIT_COMMITTER_DATE: '2030-01-01T00:00:00+00:00',
+      },
+    });
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+    const againstId = (await listRecentMemory({ projectRoot: repoDir })).items[0]!.id;
+
+    const store = MemoryStore.open(resolveWorkspace(repoDir).dbPath);
+    try {
+      store.recordContradictionCheck({ candidateId, againstId, contradicts: true, reason: null, model: 'test-model' });
+    } finally {
+      store.close();
+    }
+
+    const dismissed = await resolveStaleSuggestion({ projectRoot: repoDir, candidateId, action: 'dismiss' });
+    expect(dismissed.summary).toContain('dismissed');
+
+    const after = await listStaleSuggestions({ projectRoot: repoDir });
+    expect(after.suggestions).toHaveLength(0);
+
+    // Dismissing again reports nothing left to dismiss, not a false success.
+    const secondDismiss = await resolveStaleSuggestion({ projectRoot: repoDir, candidateId, action: 'dismiss' });
+    expect(secondDismiss.summary).toContain('no open contradiction suggestion');
+  });
+
+  it('resolve_stale_suggestion rejects "accept" without an againstId', async () => {
+    await syncProject({ projectRoot: repoDir, noEmbed: true });
+    const candidateId = (await listRecentMemory({ projectRoot: repoDir })).items[0]!.id;
+
+    await expect(resolveStaleSuggestion({ projectRoot: repoDir, candidateId, action: 'accept' })).rejects.toThrow('againstId is required');
   });
 
   it('scopes tool calls to the correct project via projectRoot, not any implicit cwd', async () => {

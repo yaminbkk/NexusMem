@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { readOwnVersion } from '../core/version.js';
-import { getStatus, listRecentMemory, searchMemory, syncProject } from './tools.js';
+import { getStatus, listRecentMemory, listStaleSuggestions, resolveStaleSuggestion, searchMemory, syncProject } from './tools.js';
 
 /**
  * Local-only, stdio-transport MCP server exposing NexusMem's memory to any
@@ -117,6 +117,45 @@ export function createServer(): McpServer {
         content: [{ type: 'text', text: JSON.stringify(result.items, null, 2) }],
         structuredContent: { items: result.items } as unknown as Record<string, unknown>,
       };
+    },
+  );
+
+  server.registerTool(
+    'list_stale_suggestions',
+    {
+      title: 'List open contradiction suggestions',
+      description:
+        'List open contradiction verdicts for a NexusMem-tracked repository -- candidates flagged by "nexusmem stale --check-contradictions" (or automatically during sync) as likely superseded by a newer, similar node. Nothing has been written yet; use resolve_stale_suggestion to act on one.',
+      inputSchema: {
+        projectRoot: z.string().describe('Absolute path to the repository root'),
+        limit: z.number().int().positive().optional().describe('Max suggestions to return, most recently judged first. Default 50.'),
+      },
+    },
+    async ({ projectRoot, limit }) => {
+      const result = await listStaleSuggestions({ projectRoot, limit });
+      return {
+        content: [{ type: 'text', text: JSON.stringify(result.suggestions, null, 2) }],
+        structuredContent: { suggestions: result.suggestions } as unknown as Record<string, unknown>,
+      };
+    },
+  );
+
+  server.registerTool(
+    'resolve_stale_suggestion',
+    {
+      title: 'Accept or dismiss a contradiction suggestion',
+      description:
+        '"accept" writes a supersede link from candidateId to againstId (the same effect as "nexusmem mark-stale") -- the ranker down-weights candidateId from then on but never deletes it. "dismiss" silences the suggestion without changing ranking, so it stops resurfacing on future stale/sync runs.',
+      inputSchema: {
+        projectRoot: z.string().describe('Absolute path to the repository root'),
+        candidateId: z.string().describe('Id of the stale/superseded node'),
+        action: z.enum(['accept', 'dismiss']).describe('Whether to write the supersede link or silence the suggestion'),
+        againstId: z.string().optional().describe('Id of the superseding node. Required for "accept", ignored for "dismiss".'),
+      },
+    },
+    async ({ projectRoot, candidateId, action, againstId }) => {
+      const result = await resolveStaleSuggestion({ projectRoot, candidateId, action, againstId });
+      return { content: [{ type: 'text', text: result.summary }] };
     },
   );
 
