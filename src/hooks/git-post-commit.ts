@@ -34,11 +34,25 @@
  * cosmetic (the log is a diagnostic aid, not a source of truth) and the
  * fix (serializing log writes too, or giving each run its own file) adds
  * real complexity for a rare, non-destructive case.
+ *
+ * The marker/snippet mechanics (install-detection, strip, upsert, shebang)
+ * are generic across every git hook type NexusMem installs -- see
+ * `git-hook-snippet.ts`, which this just binds to this hook's own markers.
  */
+
+import {
+  ensureShebang as ensureShebangGeneric,
+  isForeignHook as isForeignHookGeneric,
+  isHookInstalled as isHookInstalledGeneric,
+  SHEBANG,
+  stripHookSnippet as stripHookSnippetGeneric,
+  upsertHookSnippet as upsertHookSnippetGeneric,
+  type HookMarkers,
+} from './git-hook-snippet.js';
 
 const MARK_START = '# >>> nexusmem postcommit hook >>>';
 const MARK_END = '# <<< nexusmem postcommit hook <<<';
-const SHEBANG = '#!/bin/sh';
+const MARKERS: HookMarkers = { markStart: MARK_START, markEnd: MARK_END };
 const LOG_PATH = '.nexusmem/post-commit-sync.log';
 const LOG_TRUNCATE_THRESHOLD = 2000;
 
@@ -60,39 +74,20 @@ export function renderHookSnippet(): string {
 }
 
 export function isHookInstalled(content: string): boolean {
-  return content.includes(MARK_START);
+  return isHookInstalledGeneric(content, MARKERS);
 }
 
-/** Real, non-empty content with no NexusMem marker -- i.e. a hook this installer did not write. */
 export function isForeignHook(content: string): boolean {
-  return content.trim().length > 0 && !isHookInstalled(content);
+  return isForeignHookGeneric(content, MARKERS);
 }
 
 export function stripHookSnippet(content: string): string {
-  const startIdx = content.indexOf(MARK_START);
-  const endIdx = content.indexOf(MARK_END);
-  if (startIdx === -1 || endIdx === -1) return content;
-
-  const afterBlock = content.slice(endIdx + MARK_END.length).replace(/^\r?\n/, '');
-  return content.slice(0, startIdx) + afterBlock;
+  return stripHookSnippetGeneric(content, MARKERS);
 }
 
-/**
- * Idempotent, same shape as `git-pre-commit.ts`'s `upsertHookSnippet`: strips
- * any existing block first, then appends the current snippet at the end of
- * whatever content remains -- so a foreign hook installed with `--force`
- * still runs its own commands first.
- */
 export function upsertHookSnippet(content: string): string {
-  const stripped = stripHookSnippet(content).replace(/\s+$/, '');
-  const prefix = stripped.length > 0 ? `${stripped}\n\n` : '';
-  return `${prefix}${renderHookSnippet()}`;
+  return upsertHookSnippetGeneric(content, MARKERS, renderHookSnippet);
 }
 
-/** A git hook file's shebang must be its first line; ensure one exists without disturbing existing content. */
-export function ensureShebang(content: string): string {
-  if (content.startsWith('#!')) return content;
-  return content.length > 0 ? `${SHEBANG}\n${content}` : `${SHEBANG}\n`;
-}
-
+export const ensureShebang = ensureShebangGeneric;
 export { SHEBANG };

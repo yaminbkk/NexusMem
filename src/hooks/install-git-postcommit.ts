@@ -1,13 +1,12 @@
-import { chmod, mkdir, readFile, unlink, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
+import { ensureShebang, isForeignHook, isHookInstalled, SHEBANG, stripHookSnippet, upsertHookSnippet } from './git-post-commit.js';
 import {
-  ensureShebang,
-  isForeignHook,
-  isHookInstalled,
-  SHEBANG,
-  stripHookSnippet,
-  upsertHookSnippet,
-} from './git-post-commit.js';
+  gitHookStatusGeneric,
+  installGitHookGeneric,
+  removeGitHookGeneric,
+  type GitHookKind,
+  type InstallGitHookResult,
+} from './git-hook-install.js';
 
 export interface GitPostCommitHookTarget {
   hookPath: string;
@@ -28,69 +27,35 @@ export class ForeignPostCommitHookError extends Error {
   }
 }
 
+const KIND: GitHookKind = {
+  isHookInstalled,
+  isForeignHook,
+  stripHookSnippet,
+  upsertHookSnippet,
+  ensureShebang,
+  SHEBANG,
+  createForeignError: (hookPath) => new ForeignPostCommitHookError(hookPath),
+};
+
 export function resolvePostCommitHookTarget(repoRoot: string): GitPostCommitHookTarget {
   return { hookPath: join(repoRoot, '.git', 'hooks', 'post-commit') };
 }
 
-async function readHook(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf8');
-  } catch {
-    return '';
-  }
-}
-
-export interface InstallPostCommitHookResult {
-  changed: boolean;
-  alreadyInstalled: boolean;
-  /** True when this install appended onto a pre-existing foreign hook under `--force`. */
-  appendedToForeign: boolean;
-}
+export type InstallPostCommitHookResult = InstallGitHookResult;
 
 export async function installPostCommitGitHook(
   target: GitPostCommitHookTarget,
   opts: { force?: boolean } = {},
 ): Promise<InstallPostCommitHookResult> {
-  const current = await readHook(target.hookPath);
-  const alreadyInstalled = isHookInstalled(current);
-  const foreign = isForeignHook(current);
-
-  if (foreign && !alreadyInstalled && !opts.force) {
-    throw new ForeignPostCommitHookError(target.hookPath);
-  }
-
-  // Same ordering caveat as the pre-commit installer: shebang applied before
-  // upsert, since upsert measures "prior content" to decide the blank-line
-  // separator, and that measurement must stay stable across calls.
-  const next = upsertHookSnippet(ensureShebang(current));
-  if (next === current) return { changed: false, alreadyInstalled, appendedToForeign: false };
-
-  await mkdir(dirname(target.hookPath), { recursive: true });
-  await writeFile(target.hookPath, next, 'utf8');
-  // Best-effort: NTFS (Windows) ignores unix mode bits entirely, and git for
-  // Windows runs hooks via its bundled sh.exe regardless.
-  await chmod(target.hookPath, 0o755).catch(() => {});
-
-  return { changed: true, alreadyInstalled, appendedToForeign: foreign && !alreadyInstalled };
+  return installGitHookGeneric(target, KIND, opts);
 }
 
 export async function removePostCommitGitHook(target: GitPostCommitHookTarget): Promise<{ changed: boolean }> {
-  const current = await readHook(target.hookPath);
-  if (!isHookInstalled(current)) return { changed: false };
-
-  const stripped = stripHookSnippet(current).trim();
-  if (stripped === '' || stripped === SHEBANG) {
-    await unlink(target.hookPath).catch(() => {});
-  } else {
-    await writeFile(target.hookPath, `${stripped}\n`, 'utf8');
-  }
-
-  return { changed: true };
+  return removeGitHookGeneric(target, KIND);
 }
 
 export async function postCommitGitHookStatus(
   target: GitPostCommitHookTarget,
 ): Promise<{ installed: boolean; foreign: boolean }> {
-  const current = await readHook(target.hookPath);
-  return { installed: isHookInstalled(current), foreign: isForeignHook(current) };
+  return gitHookStatusGeneric(target, KIND);
 }
