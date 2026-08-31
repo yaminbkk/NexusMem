@@ -9,6 +9,10 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [0.10.3] — 2026-08-31
+
 ### Added
 
 - `hook git-post install|remove|status`: an opt-in git post-commit hook that runs a full
