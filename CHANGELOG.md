@@ -9,7 +9,14 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
-No unreleased changes yet.
+### Added
+
+- `hook git-post install|remove|status`: an opt-in git post-commit hook that runs a full
+  `nexusmem sync` (including embedding) in the background after every commit. Detached (`nohup ... &`),
+  so it never makes `git commit` itself wait; output goes to `.nexusmem/post-commit-sync.log` instead
+  of the terminal. `sync` gained a matching `--auto` flag (used only by this hook) that skips instead
+  of running if another `--auto` sync already holds an advisory lock over the project's workspace dir —
+  a burst of commits (e.g. a rebase) coalesces into one sync instead of piling up.
 
 ## [0.10.2] — 2026-08-30
 
