@@ -25,6 +25,7 @@ import { collectFileEdges } from '../../structure/collect.js';
 import { OllamaEmbeddingProvider, type EmbeddingProvider } from '../../vector/embed.js';
 import { embedPendingNodes } from '../../vector/sync.js';
 import { loadContext } from '../context.js';
+import { acquireSyncLock, type SyncLock } from '../sync-lock.js';
 
 export interface SyncOptions {
   cwd: string;
@@ -60,6 +61,17 @@ export interface SyncOptions {
    */
   linkFailures?: boolean;
   quiet: boolean;
+  /**
+   * Used by the post-commit hook, not by hand: acquires a lock over this
+   * project's workspace dir before syncing, and skips (returns 0 without
+   * doing anything) instead of running if another `--auto` sync already
+   * holds it. A burst of commits (e.g. a rebase) then coalesces into one
+   * sync instead of piling up N overlapping full syncs -- the next one to
+   * actually run walks every commit the skipped ones would have, since git's
+   * cursor never advances until a walk completes. A manually-run `sync`
+   * (this flag unset) never acquires or checks the lock, so it always runs.
+   */
+  auto?: boolean;
   /**
    * Where the final summary goes. Defaults to real stdout for the CLI.
    *
@@ -640,6 +652,15 @@ export async function runSync(opts: SyncOptions): Promise<number> {
   };
   const out = opts.out ?? ((chunk: string) => void process.stdout.write(chunk));
 
+  let lock: SyncLock | null = null;
+  if (opts.auto) {
+    lock = acquireSyncLock(ws.dir);
+    if (!lock) {
+      log(`${pc.dim('auto-sync')} another sync is already running for this project -- skipping`);
+      return 0;
+    }
+  }
+
   const store = MemoryStore.open(ws.dbPath);
   const started = Date.now();
 
@@ -801,5 +822,6 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     return 0;
   } finally {
     store.close();
+    lock?.release();
   }
 }
