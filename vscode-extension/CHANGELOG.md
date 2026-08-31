@@ -4,6 +4,17 @@ Notable changes to the NexusMem VS Code extension. Format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); this project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2] — 2026-08-31
+
+### Changed
+
+- Marketplace listing category changed from `Other` to `AI`/`Chat` — the extension had 1 real install
+  despite 5 published versions, and `Other` is the least-discoverable category on the Marketplace (no
+  one browses it looking for a specific kind of tool). `AI`/`Chat` match what this extension actually
+  does (an `@nexusmem` Copilot Chat participant plus AI-driven memory search) and are both real,
+  filterable Marketplace categories, confirmed live against `marketplace.visualstudio.com`'s own
+  category list before picking them.
+
 ## [0.3.1] — 2026-08-30
 
 No functional changes. Version bump only, requested alongside root NexusMem `v0.10.2`'s release; this
