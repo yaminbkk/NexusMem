@@ -15,7 +15,6 @@ import { join } from 'node:path';
 
 interface LockOwner {
   pid: number;
-  startedAt: string;
 }
 
 export interface SyncLock {
@@ -75,9 +74,7 @@ export function acquireSyncLock(wsDir: string): SyncLock | null {
       // Exclusive create: atomically fails with EEXIST if the file is
       // already there, instead of a read-then-write that could race another
       // process between the two steps.
-      writeFileSync(path, `${JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() })}\n`, {
-        flag: 'wx',
-      });
+      writeFileSync(path, `${JSON.stringify({ pid: process.pid })}\n`, { flag: 'wx' });
       return { release: () => tryUnlink(path) };
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'EEXIST') throw err;

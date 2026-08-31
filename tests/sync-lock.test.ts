@@ -41,7 +41,7 @@ describe('acquireSyncLock', () => {
   it('reclaims a stale lock left by a dead pid', () => {
     // Far beyond any real OS pid (Windows caps well under this, POSIX pid_max
     // typically far lower too), so `process.kill(pid, 0)` reliably throws.
-    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid: 999_999_999, startedAt: new Date().toISOString() }));
+    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid: 999_999_999 }));
 
     const lock = acquireSyncLock(dir);
     expect(lock).not.toBeNull();
@@ -59,7 +59,7 @@ describe('acquireSyncLock', () => {
     // throw -- naively trusting that as "alive" would make a {pid:0} lock (from
     // corruption or a partial write) unreclaimable forever. This must never
     // come from a real acquire (`process.pid` is never 0), only from bad data.
-    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid: 0, startedAt: new Date().toISOString() }));
+    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid: 0 }));
 
     const lock = acquireSyncLock(dir);
     expect(lock).not.toBeNull();
@@ -67,7 +67,7 @@ describe('acquireSyncLock', () => {
 
   it('does NOT reclaim a lock whose pid exists but is inaccessible (EPERM, not ESRCH)', () => {
     const pid = 123;
-    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid, startedAt: new Date().toISOString() }));
+    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid }));
 
     const killSpy = vi.spyOn(process, 'kill').mockImplementation((target) => {
       if (target === pid) {
@@ -89,7 +89,7 @@ describe('acquireSyncLock', () => {
 
   it('does reclaim a lock whose pid is confirmed gone (ESRCH)', () => {
     const pid = 456;
-    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid, startedAt: new Date().toISOString() }));
+    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid }));
 
     const killSpy = vi.spyOn(process, 'kill').mockImplementation((target) => {
       if (target === pid) {
