@@ -5,6 +5,7 @@
 [![npm downloads](https://img.shields.io/npm/dm/nexusmem)](https://www.npmjs.com/package/nexusmem)
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 ![Node](https://img.shields.io/badge/node-%3E%3D22-brightgreen)
+[![yaminbkk/NexusMem MCP server](https://glama.ai/mcp/servers/yaminbkk/NexusMem/badges/score.svg)](https://glama.ai/mcp/servers/yaminbkk/NexusMem)
 
 ![NexusMem: init, sync --github, and a query against this repo's own history — surfacing a real issue, the PR that closed it, and the commits it shipped](docs/demo.gif)
 
