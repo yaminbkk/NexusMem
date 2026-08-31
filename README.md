@@ -427,8 +427,11 @@ node afterward. `--verify` is a label only; it does not boost ranking. Every nod
 <nodeId> --supersedes <newNodeId>`, `review <nodeId> --verify|--reject` (record a human verdict on
 one node, see above), `precheck` (advisory — warns about staged files with an unresolved past
 failure or high recent churn; exits 0 unless `--strict`), `hook install|remove|status` (the
-PowerShell exit-code hook), and `hook git install|remove|status` (a git pre-commit hook that runs
-`precheck` before each commit).
+PowerShell exit-code hook), `hook git install|remove|status` (a git pre-commit hook that runs
+`precheck` before each commit), and `hook git-post install|remove|status` (a git post-commit hook
+that runs a full `sync`, including embedding, in the background after each commit — detached, so it
+never makes `git commit` itself wait; a burst of commits coalesces into one sync via `sync --auto`'s
+lock instead of piling up).
 
 There are also eight dry-run previews (`scan-git`, `scan-diff`, `scan-shell`, `scan-docs`,
 `scan-conversation`, `scan-session`, `scan-github`, `scan-structure`) that write nothing and print

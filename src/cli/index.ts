@@ -6,9 +6,17 @@ import { GitCrashError, GitSpawnError } from '../git/exec.js';
 import { NotAGitRepositoryError } from '../git/repo.js';
 import { ProfileNotFoundError } from '../hooks/install.js';
 import { ForeignGitHookError } from '../hooks/install-git-precommit.js';
+import { ForeignPostCommitHookError } from '../hooks/install-git-postcommit.js';
 import { DenyListError } from '../store/deny-list.js';
 import { runForget } from './commands/forget.js';
-import { runHookGitInstall, runHookGitRemove, runHookGitStatus } from './commands/hook-git.js';
+import {
+  runHookGitInstall,
+  runHookGitPostInstall,
+  runHookGitPostRemove,
+  runHookGitPostStatus,
+  runHookGitRemove,
+  runHookGitStatus,
+} from './commands/hook-git.js';
 import { runHookInstall, runHookRemove, runHookStatus } from './commands/hook.js';
 import { runInit } from './commands/init.js';
 import { MarkStaleError, runMarkStale } from './commands/mark-stale.js';
@@ -42,6 +50,7 @@ function isExpected(err: unknown): err is Error {
     err instanceof ConfigError ||
     err instanceof ProfileNotFoundError ||
     err instanceof ForeignGitHookError ||
+    err instanceof ForeignPostCommitHookError ||
     err instanceof DenyListError ||
     err instanceof MarkStaleError ||
     err instanceof QueryError ||
@@ -112,6 +121,11 @@ program
     false,
   )
   .option('-q, --quiet', 'only print the final summary', false)
+  .option(
+    '--auto',
+    "used by the post-commit hook: skip (instead of running) if another --auto sync already holds this project's lock -- a manually-run sync never checks it",
+    false,
+  )
   .action((options) =>
     guard(() =>
       runSync({
@@ -129,6 +143,7 @@ program
         yes: options.yes,
         linkFailures: options.linkFailures,
         quiet: options.quiet,
+        auto: options.auto,
       }),
     )(),
   );
@@ -175,6 +190,29 @@ program
           .description('Show whether the git pre-commit hook is installed')
           .option('-C, --cwd <path>', 'repository path', process.cwd())
           .action((options) => guard(() => runHookGitStatus({ cwd: options.cwd }))()),
+      ),
+  )
+  .addCommand(
+    new Command('git-post')
+      .description('Manage the opt-in git post-commit hook that runs a full `nexusmem sync` (with embedding) after each commit')
+      .addCommand(
+        new Command('install')
+          .description('Install (or update) the hook in .git/hooks/post-commit')
+          .option('-C, --cwd <path>', 'repository path', process.cwd())
+          .option('--force', 'append after an existing foreign post-commit hook instead of refusing', false)
+          .action((options) => guard(() => runHookGitPostInstall({ cwd: options.cwd, force: options.force }))()),
+      )
+      .addCommand(
+        new Command('remove')
+          .description("Remove nexusmem's block from .git/hooks/post-commit")
+          .option('-C, --cwd <path>', 'repository path', process.cwd())
+          .action((options) => guard(() => runHookGitPostRemove({ cwd: options.cwd }))()),
+      )
+      .addCommand(
+        new Command('status')
+          .description('Show whether the git post-commit hook is installed')
+          .option('-C, --cwd <path>', 'repository path', process.cwd())
+          .action((options) => guard(() => runHookGitPostStatus({ cwd: options.cwd }))()),
       ),
   );
 
