@@ -14,23 +14,36 @@
  * `sync-lock.ts`) instead of running unconditionally -- a burst of commits
  * (e.g. a rebase) should coalesce into one sync, not pile up N overlapping
  * full syncs each fighting over the same database.
+ *
+ * The log is truncated (emptied, not rotated) once it grows past
+ * `LOG_TRUNCATE_THRESHOLD` lines, checked *before* each run appends -- so a
+ * repository with the hook installed for months doesn't grow that file
+ * forever. Truncation is a plain `>` on the same file (`: >file`), not a
+ * write-elsewhere-then-rename: a rename swaps in a new inode, and another
+ * invocation's append that's still mid-flight (e.g. a lock-skip message from
+ * a commit that landed moments earlier) would keep writing to the old,
+ * now-unreferenced inode and vanish once it closes. Truncating in place has
+ * no such window -- a concurrent appender's fd keeps pointing at the same
+ * file and simply continues writing from the new (shorter) end.
  */
 
 const MARK_START = '# >>> nexusmem postcommit hook >>>';
 const MARK_END = '# <<< nexusmem postcommit hook <<<';
 const SHEBANG = '#!/bin/sh';
+const LOG_PATH = '.nexusmem/post-commit-sync.log';
+const LOG_TRUNCATE_THRESHOLD = 2000;
 
 export function renderHookSnippet(): string {
   return [
     MARK_START,
     '# Runs a full `nexusmem sync` (including embedding) in the background after',
     '# each commit -- detached, so this never makes `git commit` itself wait.',
-    '# Output goes to .nexusmem/post-commit-sync.log, not the terminal.',
+    `# Output goes to ${LOG_PATH} (reset once it passes ${LOG_TRUNCATE_THRESHOLD} lines), not the terminal.`,
     '# Installed by: nexusmem hook git-post install',
     '# Remove with:  nexusmem hook git-post remove',
     'if command -v nexusmem >/dev/null 2>&1; then',
     '  mkdir -p .nexusmem',
-    '  nohup nexusmem sync --quiet --auto >>.nexusmem/post-commit-sync.log 2>&1 &',
+    `  nohup sh -c '[ "$(wc -l <${LOG_PATH} 2>/dev/null || echo 0)" -gt ${LOG_TRUNCATE_THRESHOLD} ] && : >${LOG_PATH}; nexusmem sync --quiet --auto >>${LOG_PATH} 2>&1' >/dev/null 2>&1 &`,
     'fi',
     MARK_END,
     '',

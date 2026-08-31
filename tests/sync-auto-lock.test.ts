@@ -53,26 +53,22 @@ describe('sync --auto', () => {
     expect(stripAnsi(chunks.join(''))).toMatch(/synced 1 commit/);
   });
 
-  it('skips instead of running when another --auto sync already holds the lock', async () => {
+  it('skips instead of running when another --auto sync already holds the lock, reporting it through `out` (not `log`)', async () => {
+    // Through `out`, not `log`: the post-commit hook always runs with `--quiet`,
+    // and `log` is gated on `!quiet` -- if the skip message went through `log`,
+    // a `quiet: true` run (the hook's actual invocation) would report nothing
+    // at all, anywhere, making a skip indistinguishable from the hook never
+    // firing. This is why the assertion below runs with `quiet: true`.
     const ws = resolveWorkspace(dir);
     const lock = acquireSyncLock(ws.dir);
     expect(lock).not.toBeNull();
 
-    const chunks: string[] = [];
-    const logs: string[] = [];
-    const origWrite = process.stderr.write.bind(process.stderr);
-    process.stderr.write = ((chunk: string) => {
-      logs.push(chunk.toString());
-      return true;
-    }) as typeof process.stderr.write;
-
     try {
-      const code = await runSync({ cwd: dir, full: false, rebuild: false, quiet: false, noEmbed: true, auto: true, out: (c) => chunks.push(c) });
+      const chunks: string[] = [];
+      const code = await runSync({ cwd: dir, full: false, rebuild: false, quiet: true, noEmbed: true, auto: true, out: (c) => chunks.push(c) });
       expect(code).toBe(0);
-      expect(stripAnsi(logs.join(''))).toMatch(/auto-sync.*already running.*skipping/);
-      expect(chunks.join('')).toBe('');
+      expect(stripAnsi(chunks.join(''))).toMatch(/auto-sync.*already running.*skipping/);
     } finally {
-      process.stderr.write = origWrite;
       lock?.release();
     }
   });

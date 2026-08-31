@@ -656,7 +656,11 @@ export async function runSync(opts: SyncOptions): Promise<number> {
   if (opts.auto) {
     lock = acquireSyncLock(ws.dir);
     if (!lock) {
-      log(`${pc.dim('auto-sync')} another sync is already running for this project -- skipping`);
+      // Through `out`, not `log`: this is the entire report for this run, and
+      // `log` is gated on `!opts.quiet` -- the post-commit hook always passes
+      // `--quiet`, so a `log` line here would never reach even the hook's own
+      // log file, making a skip indistinguishable from the hook never firing.
+      out(`${pc.dim('auto-sync')} another sync is already running for this project -- skipping\n`);
       return 0;
     }
   }

@@ -53,7 +53,13 @@ describe('git post-commit hook snippet (pure)', () => {
   });
 
   it('the rendered snippet runs sync detached, quiet, and in auto (lock-and-skip) mode', () => {
-    expect(renderHookSnippet()).toContain('\n  nohup nexusmem sync --quiet --auto >>.nexusmem/post-commit-sync.log 2>&1 &\n');
+    expect(renderHookSnippet()).toContain('nexusmem sync --quiet --auto >>.nexusmem/post-commit-sync.log 2>&1');
+  });
+
+  it('the rendered snippet truncates the log in place once it passes 2000 lines, so it cannot grow forever', () => {
+    const snippet = renderHookSnippet();
+    expect(snippet).toContain('wc -l <.nexusmem/post-commit-sync.log');
+    expect(snippet).toContain('-gt 2000 ] && : >.nexusmem/post-commit-sync.log;');
   });
 
   it('ensureShebang adds one only when missing', () => {

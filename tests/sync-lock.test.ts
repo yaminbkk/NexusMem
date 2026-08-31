@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { acquireSyncLock } from '../src/cli/sync-lock.js';
 
 describe('acquireSyncLock', () => {
@@ -52,5 +52,58 @@ describe('acquireSyncLock', () => {
 
     const lock = acquireSyncLock(dir);
     expect(lock).not.toBeNull();
+  });
+
+  it('reclaims a lock recorded with pid 0, instead of treating it as permanently alive', () => {
+    // `process.kill(0, 0)` signals the caller's own process group and does not
+    // throw -- naively trusting that as "alive" would make a {pid:0} lock (from
+    // corruption or a partial write) unreclaimable forever. This must never
+    // come from a real acquire (`process.pid` is never 0), only from bad data.
+    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid: 0, startedAt: new Date().toISOString() }));
+
+    const lock = acquireSyncLock(dir);
+    expect(lock).not.toBeNull();
+  });
+
+  it('does NOT reclaim a lock whose pid exists but is inaccessible (EPERM, not ESRCH)', () => {
+    const pid = 123;
+    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid, startedAt: new Date().toISOString() }));
+
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((target) => {
+      if (target === pid) {
+        const err = Object.assign(new Error('kill EPERM'), { code: 'EPERM' });
+        throw err;
+      }
+      return true;
+    });
+
+    try {
+      const lock = acquireSyncLock(dir);
+      expect(lock).toBeNull();
+      // Must not have deleted the lock it couldn't confirm was dead.
+      expect(readFileSync(join(dir, 'sync.lock'), 'utf8')).toContain(String(pid));
+    } finally {
+      killSpy.mockRestore();
+    }
+  });
+
+  it('does reclaim a lock whose pid is confirmed gone (ESRCH)', () => {
+    const pid = 456;
+    writeFileSync(join(dir, 'sync.lock'), JSON.stringify({ pid, startedAt: new Date().toISOString() }));
+
+    const killSpy = vi.spyOn(process, 'kill').mockImplementation((target) => {
+      if (target === pid) {
+        const err = Object.assign(new Error('kill ESRCH'), { code: 'ESRCH' });
+        throw err;
+      }
+      return true;
+    });
+
+    try {
+      const lock = acquireSyncLock(dir);
+      expect(lock).not.toBeNull();
+    } finally {
+      killSpy.mockRestore();
+    }
   });
 });

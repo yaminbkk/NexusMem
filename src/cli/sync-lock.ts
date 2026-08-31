@@ -29,19 +29,35 @@ function lockPath(wsDir: string): string {
 function readOwner(path: string): LockOwner | null {
   try {
     const parsed = JSON.parse(readFileSync(path, 'utf8'));
-    return typeof parsed?.pid === 'number' ? (parsed as LockOwner) : null;
+    const pid = parsed?.pid;
+    // Must be a genuine positive pid, not just typeof number: 0 is never a
+    // real process's own `process.pid`, but `kill(0, 0)` doesn't throw (it
+    // signals the caller's own process group) -- treating a `{pid:0}` lock
+    // (corruption, a partial write) as belonging to a live process would make
+    // it permanently unreclaimable.
+    return typeof pid === 'number' && Number.isInteger(pid) && pid > 0 ? (parsed as LockOwner) : null;
   } catch {
     return null;
   }
 }
 
-/** `kill -0`: throws if the pid is gone, succeeds (without actually signalling) if it's alive. Works on Windows too. */
+/**
+ * `kill -0`: throws if the pid is gone, succeeds (without actually
+ * signalling) if it's alive. Works on Windows too.
+ *
+ * Only `ESRCH` (no such process) counts as dead. Anything else -- `EPERM`
+ * (the pid exists but this user can't signal it), or an unexpected error --
+ * is treated as alive: reclaiming a lock that's still genuinely held lets two
+ * syncs run concurrently against the same database, while wrongly treating a
+ * dead one as alive just costs one skipped sync that the next commit's hook
+ * picks up anyway. The two mistakes are not equally bad, so ties go to "alive".
+ */
 function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
     return true;
-  } catch {
-    return false;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code !== 'ESRCH';
   }
 }
 
