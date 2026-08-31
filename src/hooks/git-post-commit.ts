@@ -25,6 +25,15 @@
  * now-unreferenced inode and vanish once it closes. Truncating in place has
  * no such window -- a concurrent appender's fd keeps pointing at the same
  * file and simply continues writing from the new (shorter) end.
+ *
+ * Known limitation: the lock in `sync-lock.ts` serializes the actual sync
+ * work (the database is never at risk), but not who gets to write to this
+ * log file. A real burst of commits fast enough to launch genuinely
+ * overlapping processes can still interleave two runs' text mid-line here --
+ * confirmed live with five real-speed commits. Accepted for now since it's
+ * cosmetic (the log is a diagnostic aid, not a source of truth) and the
+ * fix (serializing log writes too, or giving each run its own file) adds
+ * real complexity for a rare, non-destructive case.
  */
 
 const MARK_START = '# >>> nexusmem postcommit hook >>>';

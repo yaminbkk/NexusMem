@@ -16,7 +16,16 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   so it never makes `git commit` itself wait; output goes to `.nexusmem/post-commit-sync.log` instead
   of the terminal. `sync` gained a matching `--auto` flag (used only by this hook) that skips instead
   of running if another `--auto` sync already holds an advisory lock over the project's workspace dir —
-  a burst of commits (e.g. a rebase) coalesces into one sync instead of piling up.
+  a burst of commits (e.g. a rebase) coalesces into one sync instead of piling up. The log file is
+  reset once it passes 2000 lines so it can't grow forever, and a skipped/coalesced run is always
+  reported there, even though the hook always passes `--quiet`.
+
+### Known limitations
+
+- A burst of commits fast enough to launch genuinely overlapping `sync --auto` processes can
+  interleave two runs' text mid-line in `.nexusmem/post-commit-sync.log` — the advisory lock
+  serializes the actual database writes (never at risk), not who gets to write to this diagnostic
+  log file. Cosmetic only; not planned to be fixed unless it turns out to matter in practice.
 
 ## [0.10.2] — 2026-08-30
 
