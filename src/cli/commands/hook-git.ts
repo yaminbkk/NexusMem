@@ -61,7 +61,7 @@ export async function runHookGitStatus(opts: HookGitOptions): Promise<number> {
   const statusLabel = result.installed
     ? pc.green('installed')
     : result.foreign
-      ? pc.yellow('a foreign hook exists (not nexusmem) -- install --force to append')
+      ? pc.yellow('a foreign hook exists (not nexusmem) -- nexusmem hook git install --force to append')
       : pc.yellow('not installed');
 
   process.stdout.write([`${pc.dim('hook  ')} ${target.hookPath}`, `${pc.dim('status')} ${statusLabel}`, ''].join('\n'));
@@ -118,7 +118,7 @@ export async function runHookGitPostStatus(opts: HookGitOptions): Promise<number
   const statusLabel = result.installed
     ? pc.green('installed')
     : result.foreign
-      ? pc.yellow('a foreign hook exists (not nexusmem) -- install --force to append')
+      ? pc.yellow('a foreign hook exists (not nexusmem) -- nexusmem hook git-post install --force to append')
       : pc.yellow('not installed');
 
   process.stdout.write([`${pc.dim('hook  ')} ${target.hookPath}`, `${pc.dim('status')} ${statusLabel}`, ''].join('\n'));

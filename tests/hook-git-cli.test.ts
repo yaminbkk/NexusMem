@@ -110,7 +110,10 @@ describe('nexusmem hook git', () => {
     writeFileSync(hookPath, '#!/bin/sh\nnpx lint-staged\n');
 
     await runHookGitStatus({ cwd: dir });
-    expect(stdout.join('')).toContain('a foreign hook exists');
+    // Names the exact subcommand to run, not a generic "install --force" --
+    // two similar hook families (git vs git-post) now coexist, and a vague
+    // hint risks the user force-installing the wrong one.
+    expect(stdout.join('')).toContain('nexusmem hook git install --force');
     stdout.length = 0;
 
     const code = await runHookGitInstall({ cwd: dir, force: true });
