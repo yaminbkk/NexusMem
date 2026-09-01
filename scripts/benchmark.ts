@@ -85,6 +85,31 @@ const CONVENTIONAL_PREFIX = /^[a-z]+(\([^)]*\))?!?:\s*/i;
 const RATIONALE_COMMIT_TYPES = new Set(['fix', 'feat', 'perf', 'refactor']);
 const HEADING_SEPARATOR = ' \u2014 '; // em dash, matches src/collectors/docs.ts's sectionTitle()
 
+/** Repos like spring-boot use capitalized imperative titles ("Refactor BOM link DSL") instead of Conventional
+ * Commits -- deliberately narrow to verbs that reliably signal a rationale, so routine titles ("Bump version",
+ * "Update changelog", "Merge pull request #123") still fall through and get skipped, same as before. */
+const FALLBACK_VERB_TYPES: Record<string, string> = {
+  fix: 'fix',
+  correct: 'fix',
+  resolve: 'fix',
+  add: 'feat',
+  implement: 'feat',
+  introduce: 'feat',
+  support: 'feat',
+  optimize: 'perf',
+  improve: 'perf',
+  refactor: 'refactor',
+  simplify: 'refactor',
+  rework: 'refactor',
+  restructure: 'refactor',
+  extract: 'refactor',
+};
+
+function fallbackConventionalType(title: string): string | null {
+  const verb = title.match(/^([A-Za-z]+)\b/)?.[1];
+  return verb ? (FALLBACK_VERB_TYPES[verb.toLowerCase()] ?? null) : null;
+}
+
 function evenSample<T>(items: readonly T[], count: number): T[] {
   if (items.length <= count) return [...items];
   if (count <= 1) return items.length > 0 ? [items[0]!] : [];
@@ -124,9 +149,12 @@ function questionsFromCommits(store: MemoryStore, projectId: string, subject: st
     } catch {
       continue;
     }
+    if (!conventionalType) conventionalType = fallbackConventionalType(title);
     if (!conventionalType || !RATIONALE_COMMIT_TYPES.has(conventionalType)) continue;
 
-    const description = title.replace(CONVENTIONAL_PREFIX, '').trim();
+    const description = CONVENTIONAL_PREFIX.test(title)
+      ? title.replace(CONVENTIONAL_PREFIX, '').trim()
+      : title.charAt(0).toLowerCase() + title.slice(1);
     if (description.length < 8) continue;
     questions.push(`why does ${subject} ${description}`);
   }
