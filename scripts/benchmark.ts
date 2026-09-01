@@ -34,6 +34,11 @@
  *   tsx scripts/benchmark.ts --corpus nexusmem
  *   tsx scripts/benchmark.ts --corpus vite --vite-root D:\ai-projects\bench-vite\vite
  *   tsx scripts/benchmark.ts --corpus nexusmem,vite --vite-root <path> --count 15
+ *   tsx scripts/benchmark.ts --corpus flask,redis --root flask=D:\ai-projects\bench-flask\flask --root redis=D:\ai-projects\bench-redis\redis
+ *
+ * --root <name>=<path> is repeatable and works for any corpus name (not just
+ * vite); --vite-root <path> is kept as a backward-compatible alias for
+ * `--root vite=<path>`.
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -311,7 +316,7 @@ function printSummary(results: readonly QueryResult[]): void {
 
 interface CliOptions {
   corpora: string[];
-  viteRoot: string | null;
+  roots: Map<string, string>;
   count: number;
   vector: boolean;
   out: string | null;
@@ -320,16 +325,24 @@ interface CliOptions {
 function parseArgs(argv: readonly string[]): CliOptions {
   const opts: CliOptions = {
     corpora: ['nexusmem', 'vite'],
-    viteRoot: process.env.NEXUSMEM_BENCH_VITE_ROOT ?? null,
+    roots: new Map<string, string>(),
     count: 12,
     vector: true,
     out: null,
   };
+  const envViteRoot = process.env.NEXUSMEM_BENCH_VITE_ROOT;
+  if (envViteRoot) opts.roots.set('vite', envViteRoot);
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--corpus') opts.corpora = (argv[++i] ?? '').split(',').map((s) => s.trim());
-    else if (arg === '--vite-root') opts.viteRoot = argv[++i] ?? null;
-    else if (arg === '--count') opts.count = Number.parseInt(argv[++i] ?? '12', 10);
+    else if (arg === '--vite-root') {
+      const path = argv[++i] ?? null;
+      if (path) opts.roots.set('vite', path);
+    } else if (arg === '--root') {
+      const spec = argv[++i] ?? '';
+      const eq = spec.indexOf('=');
+      if (eq > 0) opts.roots.set(spec.slice(0, eq).trim(), spec.slice(eq + 1).trim());
+    } else if (arg === '--count') opts.count = Number.parseInt(argv[++i] ?? '12', 10);
     else if (arg === '--no-vector') opts.vector = false;
     else if (arg === '--out') opts.out = argv[++i] ?? null;
   }
@@ -341,16 +354,20 @@ async function main(): Promise<void> {
   const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
   const specs: CorpusSpec[] = [];
-  if (opts.corpora.includes('nexusmem')) specs.push({ name: 'nexusmem', root: repoRoot });
-  if (opts.corpora.includes('vite')) {
-    if (!opts.viteRoot) {
+  for (const name of opts.corpora) {
+    if (name === 'nexusmem') {
+      specs.push({ name: 'nexusmem', root: repoRoot });
+      continue;
+    }
+    const root = opts.roots.get(name);
+    if (!root) {
       console.error(
-        'Pass --vite-root <path to a synced vite clone> (or set NEXUSMEM_BENCH_VITE_ROOT), ' +
-          'or run with --corpus nexusmem to skip the external corpus.',
+        `Pass --root ${name}=<path to a synced ${name} clone> (or --vite-root / NEXUSMEM_BENCH_VITE_ROOT for vite), ` +
+          `or drop ${name} from --corpus to skip that external corpus.`,
       );
       process.exit(1);
     }
-    specs.push({ name: 'vite', root: opts.viteRoot });
+    specs.push({ name, root });
   }
 
   const all: QueryResult[] = [];
