@@ -100,6 +100,47 @@ describe('reconcileProjectId', () => {
     expect(row.id).toBe(expectedNewId);
   });
 
+  it.each([
+    ['bash-hook', 'shell:bash-hook'],
+    ['zsh-hook', 'shell:zsh-hook'],
+  ] as const)('migrates a %s-sourced shell_command the same way, not just pwsh-hook', (prefix, source) => {
+    const ts = '2026-08-14T10:00:00.000Z';
+    const command = 'ls -la';
+    const naturalKey = `${prefix}:${ts}:${sha256Hex(command).slice(0, 12)}`;
+    const oldId = makeNodeId(OLD, 'shell_command', naturalKey);
+
+    store.upsertNodes([node({ id: oldId, kind: 'shell_command', projectId: OLD, ts, source, meta: { command } })]);
+
+    const result = reconcileProjectId(store.raw, OLD, NEW);
+
+    expect(result.migrated).toBe(1);
+    const expectedNewId = makeNodeId(NEW, 'shell_command', naturalKey);
+    const row = store.raw.prepare('SELECT id FROM nodes WHERE project_id = ?').get(NEW) as { id: string };
+    expect(row.id).toBe(expectedNewId);
+  });
+
+  it('migrates pwsh-hook, bash-hook and zsh-hook rows together in one reconcile pass', () => {
+    const ts = '2026-08-14T10:00:00.000Z';
+    const specs = [
+      { prefix: 'pwsh-hook', source: 'shell:pwsh-hook', command: 'git status' },
+      { prefix: 'bash-hook', source: 'shell:bash-hook', command: 'ls -la' },
+      { prefix: 'zsh-hook', source: 'shell:zsh-hook', command: 'npm test' },
+    ] as const;
+
+    store.upsertNodes(
+      specs.map(({ prefix, source, command }) => {
+        const naturalKey = `${prefix}:${ts}:${sha256Hex(command).slice(0, 12)}`;
+        return node({ id: makeNodeId(OLD, 'shell_command', naturalKey), kind: 'shell_command', projectId: OLD, ts, source, meta: { command } });
+      }),
+    );
+
+    const result = reconcileProjectId(store.raw, OLD, NEW);
+
+    expect(result.migrated).toBe(3);
+    expect(store.stats(NEW).total).toBe(3);
+    expect(store.stats(OLD).total).toBe(0);
+  });
+
   it('leaves pre-hook shell scrape rows (shell:pwsh) untouched -- their natural key is not reconstructable', () => {
     const oldId = makeNodeId(OLD, 'shell_command', 'pwsh:12:deadbeefcafe');
     store.upsertNodes([

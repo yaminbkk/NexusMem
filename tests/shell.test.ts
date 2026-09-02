@@ -243,7 +243,17 @@ describe('hook log', () => {
 
   it('returns empty for a file that does not exist yet, without throwing', async () => {
     const result = await readHookLog(join(dir, 'missing.jsonl'), 0);
-    expect(result).toEqual({ entries: [], totalLines: 0 });
+    expect(result).toEqual({ entries: [], totalLines: 0, shellsSeen: new Set() });
+  });
+
+  it('round-trips the shell field, and treats a legacy line missing it as pwsh-hook', async () => {
+    await appendHookLogEntry(logPath, { ts: 't1', cwd: 'c', exitCode: 0, durationMs: 5, command: 'one', shell: 'bash-hook' });
+    await appendHookLogEntry(logPath, { ts: 't2', cwd: 'c', exitCode: 0, durationMs: null, command: 'two' }); // no `shell` -- a legacy line
+
+    const { entries, shellsSeen } = await readHookLog(logPath, 0);
+    expect(entries[0]?.shell).toBe('bash-hook');
+    expect(entries[1]?.shell).toBeUndefined(); // legacy line: field absent, not defaulted by the parser itself
+    expect(shellsSeen).toEqual(new Set(['bash-hook', 'pwsh-hook'])); // ...but defaulted here, where it decides scrape-skipping
   });
 
   it('skips a torn write but keeps reading the rest', async () => {

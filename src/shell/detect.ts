@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { sha256Hex } from '../core/ids.js';
-import { readHookLog, type HookLogEntry } from './hook-log.js';
+import { readHookLog, type HookLogEntry, type HookShellKind } from './hook-log.js';
 import { parseBashHistory } from './parse-bash.js';
 import { parsePsReadLineHistory } from './parse-psreadline.js';
 import { parseZshHistory } from './parse-zsh.js';
@@ -40,15 +40,17 @@ function isUnderRoot(cwd: string, root: string): boolean {
 }
 
 function hookEntryToRaw(e: HookLogEntry): RawShellEntry {
+  // Lines predating the `shell` field are all PowerShell's -- it was the only hook that existed then.
+  const shell = e.shell ?? 'pwsh-hook';
   return {
-    naturalKey: `pwsh-hook:${e.ts}:${sha256Hex(e.command).slice(0, 12)}`,
+    naturalKey: `${shell}:${e.ts}:${sha256Hex(e.command).slice(0, 12)}`,
     command: e.command,
     ts: e.ts,
     tsApprox: false,
     exitCode: e.exitCode,
     cwd: e.cwd,
     durationMs: e.durationMs,
-    shell: 'pwsh-hook',
+    shell,
   };
 }
 
@@ -71,24 +73,37 @@ export async function collectAvailableShellHistory(opts: CollectShellHistoryOpti
   const hookPath = hookLogPath();
   const hookExists = existsSync(hookPath);
 
+  // Whether *this shell's* live hook has ever produced a line, across the
+  // log's whole history -- not just since the last cursor, since a shell
+  // that hasn't run a command since the last sync would otherwise flicker
+  // back to "not seen" and re-enable its raw-history scrape every other run.
+  let shellsSeen: ReadonlySet<HookShellKind> = new Set();
+
   if (hookExists) {
     const fromLine = Number(opts.hookCursor ?? '0') || 0;
-    const { entries, totalLines } = await readHookLog(hookPath, fromLine);
+    const { entries, totalLines, shellsSeen: seen } = await readHookLog(hookPath, fromLine);
+    shellsSeen = seen;
     const scoped = opts.repoRoot ? entries.filter((e) => isUnderRoot(e.cwd, opts.repoRoot!)) : entries;
     results.push({ name: 'pwsh-hook', entries: scoped.map(hookEntryToRaw), cursorAfter: String(totalLines) });
   }
 
-  const skipPwshScrape = preferHook && hookExists;
+  const skipPwshScrape = preferHook && shellsSeen.has('pwsh-hook');
   if (!skipPwshScrape && process.platform === 'win32') {
     const entries = await tryReadScrapeSource(psReadLineHistoryPath(), parsePsReadLineHistory, tailLines);
     if (entries) results.push({ name: 'pwsh', entries });
   }
 
-  const bashEntries = await tryReadScrapeSource(bashHistoryPath(), parseBashHistory, tailLines);
-  if (bashEntries) results.push({ name: 'bash', entries: bashEntries });
+  const skipBashScrape = preferHook && shellsSeen.has('bash-hook');
+  if (!skipBashScrape) {
+    const bashEntries = await tryReadScrapeSource(bashHistoryPath(), parseBashHistory, tailLines);
+    if (bashEntries) results.push({ name: 'bash', entries: bashEntries });
+  }
 
-  const zshEntries = await tryReadScrapeSource(zshHistoryPath(), parseZshHistory, tailLines);
-  if (zshEntries) results.push({ name: 'zsh', entries: zshEntries });
+  const skipZshScrape = preferHook && shellsSeen.has('zsh-hook');
+  if (!skipZshScrape) {
+    const zshEntries = await tryReadScrapeSource(zshHistoryPath(), parseZshHistory, tailLines);
+    if (zshEntries) results.push({ name: 'zsh', entries: zshEntries });
+  }
 
   return results;
 }

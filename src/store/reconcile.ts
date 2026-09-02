@@ -148,7 +148,9 @@ function recomputeByNaturalKey(
  * Only kinds whose original natural key survives in what's already stored
  * are recomputed and re-inserted (`session_summary` via `meta.sessionKey`;
  * hook-sourced `shell_command` via `ts` + `meta.command`, matching
- * `shell/detect.ts`'s `pwsh-hook:${ts}:${sha256(command)}` scheme).
+ * `shell/detect.ts`'s `<shell>-hook:${ts}:${sha256(command)}` scheme -- one
+ * recompute pass per live hook source, since pwsh/bash/zsh each write their
+ * own `shell:<kind>-hook` source string).
  * `conversation_turn`'s natural key embeds a transcript UUID that is never
  * persisted on the node, so it can't be recomputed -- those rows are instead
  * reassigned to the new project id in place, keeping their existing id.
@@ -186,16 +188,32 @@ export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: s
       denyEntries,
     );
 
-    const hookShell = recomputeByNaturalKey(
-      db,
-      oldProjectId,
-      newProjectId,
-      'shell_command',
-      'shell:pwsh-hook',
-      (row, meta) =>
-        typeof meta.command === 'string' ? `pwsh-hook:${row.ts}:${sha256Hex(meta.command).slice(0, 12)}` : null,
-      denyEntries,
-    );
+    // One entry per live shell hook -- each writes its own `shell:<kind>-hook`
+    // source and naturalKey prefix (see src/shell/detect.ts's hookEntryToRaw),
+    // so each needs its own recompute pass rather than one hardcoded to
+    // PowerShell's alone.
+    const HOOK_SHELL_SOURCES = [
+      { source: 'shell:pwsh-hook', prefix: 'pwsh-hook' },
+      { source: 'shell:bash-hook', prefix: 'bash-hook' },
+      { source: 'shell:zsh-hook', prefix: 'zsh-hook' },
+    ] as const;
+
+    const hookShell = { migrated: 0, deduped: 0, skipped: 0, denied: 0 };
+    for (const { source, prefix } of HOOK_SHELL_SOURCES) {
+      const r = recomputeByNaturalKey(
+        db,
+        oldProjectId,
+        newProjectId,
+        'shell_command',
+        source,
+        (row, meta) => (typeof meta.command === 'string' ? `${prefix}:${row.ts}:${sha256Hex(meta.command).slice(0, 12)}` : null),
+        denyEntries,
+      );
+      hookShell.migrated += r.migrated;
+      hookShell.deduped += r.deduped;
+      hookShell.skipped += r.skipped;
+      hookShell.denied += r.denied;
+    }
 
     // conversation_turn rows are reassigned in place by the UPDATE below,
     // not re-inserted through recomputeByNaturalKey -- a denied row would
