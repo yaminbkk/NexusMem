@@ -1,7 +1,12 @@
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import pc from 'picocolors';
 import { getChainStats, type ChainStats } from '../../correlate/failure-fix.js';
+import { parsePostCommitSyncState, STATE_PATH } from '../../hooks/git-post-commit.js';
+import { gitHookStatus, resolveGitHookTarget } from '../../hooks/install-git-precommit.js';
+import { postCommitGitHookStatus, resolvePostCommitHookTarget } from '../../hooks/install-git-postcommit.js';
+import { hookStatus, resolveHookTarget, type HookTarget } from '../../hooks/install.js';
 import { MemoryStore } from '../../store/store.js';
 import { currentSchemaVersion, LATEST_SCHEMA_VERSION } from '../../store/schema.js';
 import { loadContext } from '../context.js';
@@ -14,6 +19,10 @@ export interface StatusOptions {
   out?: (chunk: string) => void;
   /** Print a plain-text, no-ANSI summary meant to be copy-pasted onto X/Reddit/etc. */
   share?: boolean;
+  /** Test-only: skip resolveHookTarget()'s real profile-detection (which can spawn powershell.exe) with an injected target. */
+  shellHookTarget?: HookTarget;
+  /** Test-only: deterministic "now" for relative-time assertions. Defaults to Date.now. */
+  now?: () => number;
 }
 
 function daySpan(oldest: string, newest: string): number {
@@ -61,6 +70,36 @@ function fileSize(path: string): number {
   }
 }
 
+function relativeTime(fromMs: number, nowMs: number): string {
+  const diffSec = Math.max(0, Math.round((nowMs - fromMs) / 1000));
+  if (diffSec < 60) return `${diffSec} second${diffSec === 1 ? '' : 's'} ago`;
+  const diffMin = Math.round(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} minute${diffMin === 1 ? '' : 's'} ago`;
+  const diffHour = Math.round(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} hour${diffHour === 1 ? '' : 's'} ago`;
+  const diffDay = Math.round(diffHour / 24);
+  return `${diffDay} day${diffDay === 1 ? '' : 's'} ago`;
+}
+
+/** Profile detection (e.g. spawning powershell.exe to resolve $PROFILE) can fail on a bare box -- that's "not installed", not a reason to fail the whole status report. */
+async function getShellHookStatus(injected?: HookTarget): Promise<{ shell: HookTarget['shell']; installed: boolean } | null> {
+  try {
+    const target = injected ?? (await resolveHookTarget());
+    return { shell: target.shell, installed: (await hookStatus(target)).installed };
+  } catch {
+    return null;
+  }
+}
+
+async function readLastAutoSync(repoRoot: string) {
+  try {
+    const raw = await readFile(join(repoRoot, STATE_PATH), 'utf8');
+    return parsePostCommitSyncState(raw);
+  } catch {
+    return null;
+  }
+}
+
 export async function runStatus(opts: StatusOptions): Promise<number> {
   const out = opts.out ?? ((chunk: string) => void process.stdout.write(chunk));
   const { repo, ws, projectId } = await loadContext(opts.cwd);
@@ -83,6 +122,35 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
     const structure = store.fileEdgeStats(projectId);
     const staleCount = store.countStaleCandidates(projectId);
     const flaggedCount = store.countContradictionSuggestions(projectId);
+
+    const [shellHook, preCommitTarget, postCommitTarget, lastAutoSync] = await Promise.all([
+      getShellHookStatus(opts.shellHookTarget),
+      resolveGitHookTarget(repo.root),
+      resolvePostCommitHookTarget(repo.root),
+      readLastAutoSync(repo.root),
+    ]);
+    const [preCommitStatus, postCommitStatus] = await Promise.all([
+      gitHookStatus(preCommitTarget),
+      postCommitGitHookStatus(postCommitTarget),
+    ]);
+    const now = (opts.now ?? Date.now)();
+
+    const hooksPathNote = (target: { hooksPathConfig?: string | null }) =>
+      target.hooksPathConfig ? pc.dim(` (core.hooksPath=${target.hooksPathConfig})`) : '';
+    const installedLabel = (installed: boolean) => (installed ? pc.green('installed') : pc.yellow('not installed'));
+    const lastAutoSyncLabel = lastAutoSync
+      ? `${lastAutoSync.ok ? pc.green('ok') : pc.red(`FAILED (exit ${lastAutoSync.exitCode})`)} ${pc.dim(relativeTime(Date.parse(lastAutoSync.ts), now))}`
+      : postCommitStatus.installed
+        ? pc.dim('never (or hook predates this field -- reinstall with `nexusmem hook git-post install`)')
+        : pc.dim('n/a -- hook not installed');
+
+    const hooksLines = [
+      pc.dim('hooks'),
+      `    ${pc.dim(`shell (${shellHook?.shell ?? '?'})`.padEnd(23))} ${shellHook ? installedLabel(shellHook.installed) : pc.dim('unknown -- could not detect this machine’s shell profile')}`,
+      `    ${pc.dim('git pre-commit'.padEnd(23))} ${installedLabel(preCommitStatus.installed)}${hooksPathNote(preCommitTarget)}`,
+      `    ${pc.dim('git post-commit'.padEnd(23))} ${installedLabel(postCommitStatus.installed)}${hooksPathNote(postCommitTarget)}`,
+      `    ${pc.dim('last auto-sync'.padEnd(23))} ${lastAutoSyncLabel}`,
+    ];
 
     // WAL content counts towards what is actually on disk.
     const dbBytes = fileSize(ws.dbPath) + fileSize(`${ws.dbPath}-wal`);
@@ -131,6 +199,8 @@ export async function runStatus(opts: StatusOptions): Promise<number> {
         flaggedCount
           ? `${pc.dim('flagged ')} ${pc.bold(String(flaggedCount))} likely-superseded node(s) awaiting review — run ${pc.bold('nexusmem stale')} for detail`
           : '',
+        '',
+        ...hooksLines,
       ]
         .filter((line) => line !== '')
         .join('\n')

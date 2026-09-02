@@ -2,7 +2,15 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync }
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ensureShebang, isForeignHook, isHookInstalled, renderHookSnippet, stripHookSnippet, upsertHookSnippet } from '../src/hooks/git-post-commit.js';
+import {
+  ensureShebang,
+  isForeignHook,
+  isHookInstalled,
+  parsePostCommitSyncState,
+  renderHookSnippet,
+  stripHookSnippet,
+  upsertHookSnippet,
+} from '../src/hooks/git-post-commit.js';
 import {
   ForeignPostCommitHookError,
   installPostCommitGitHook,
@@ -60,7 +68,24 @@ describe('git post-commit hook snippet (pure)', () => {
   it('the rendered snippet truncates the log in place once it passes 2000 lines, so it cannot grow forever', () => {
     const snippet = renderHookSnippet();
     expect(snippet).toContain('wc -l <.nexusmem/post-commit-sync.log');
-    expect(snippet).toContain('-gt 2000 ] && : >.nexusmem/post-commit-sync.log;');
+    expect(snippet).toContain('-gt 2000 ] && : >.nexusmem/post-commit-sync.log');
+  });
+
+  it('writes the last-run outcome to a state file via atomic rename, not truncate-in-place like the log', () => {
+    const snippet = renderHookSnippet();
+    expect(snippet).toContain('ec=$?');
+    expect(snippet).toContain('>.nexusmem/post-commit-sync-state.json.tmp && mv .nexusmem/post-commit-sync-state.json.tmp .nexusmem/post-commit-sync-state.json');
+  });
+
+  it('captures the sync exit code immediately after the sync command, before anything else could run', () => {
+    const snippet = renderHookSnippet();
+    const syncIdx = snippet.indexOf('nexusmem sync --quiet --auto');
+    const ecIdx = snippet.indexOf('ec=$?');
+    expect(syncIdx).toBeGreaterThan(-1);
+    expect(ecIdx).toBeGreaterThan(syncIdx);
+    // Nothing but whitespace between the sync line's end and `ec=$?`.
+    const syncLineEnd = snippet.indexOf('\n', syncIdx);
+    expect(snippet.slice(syncLineEnd, ecIdx).trim()).toBe('');
   });
 
   it('ensureShebang adds one only when missing', () => {
@@ -196,5 +221,31 @@ describe('resolvePostCommitHookTarget honors core.hooksPath', () => {
 
     expect(readFileSync(target.hookPath, 'utf8')).toContain('nexusmem sync');
     expect(() => readFileSync(join(dir, '.git', 'hooks', 'post-commit'), 'utf8')).toThrow();
+  });
+});
+
+describe('parsePostCommitSyncState', () => {
+  it('parses a successful run', () => {
+    expect(parsePostCommitSyncState('{"ts":"2026-09-02T14:00:00Z","ok":true,"exitCode":0}')).toEqual({
+      ts: '2026-09-02T14:00:00Z',
+      ok: true,
+      exitCode: 0,
+    });
+  });
+
+  it('parses a failed run', () => {
+    expect(parsePostCommitSyncState('{"ts":"2026-09-02T14:00:00Z","ok":false,"exitCode":7}')).toEqual({
+      ts: '2026-09-02T14:00:00Z',
+      ok: false,
+      exitCode: 7,
+    });
+  });
+
+  it('returns null for invalid JSON, a non-object, or missing/wrong-typed fields, rather than throwing', () => {
+    expect(parsePostCommitSyncState('not json')).toBeNull();
+    expect(parsePostCommitSyncState('null')).toBeNull();
+    expect(parsePostCommitSyncState('[]')).toBeNull();
+    expect(parsePostCommitSyncState('{"ts":"x","ok":"true","exitCode":0}')).toBeNull(); // ok as string, not boolean
+    expect(parsePostCommitSyncState('{"ok":true,"exitCode":0}')).toBeNull(); // missing ts
   });
 });

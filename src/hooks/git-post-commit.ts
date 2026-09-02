@@ -56,21 +56,58 @@ const MARKERS: HookMarkers = { markStart: MARK_START, markEnd: MARK_END };
 const LOG_PATH = '.nexusmem/post-commit-sync.log';
 const LOG_TRUNCATE_THRESHOLD = 2000;
 
+/** Written fresh after every run so `nexusmem status` can report the last outcome without parsing the free-text log. */
+export const STATE_PATH = '.nexusmem/post-commit-sync-state.json';
+
 export function renderHookSnippet(): string {
   return [
     MARK_START,
     '# Runs a full `nexusmem sync` (including embedding) in the background after',
     '# each commit -- detached, so this never makes `git commit` itself wait.',
     `# Output goes to ${LOG_PATH} (reset once it passes ${LOG_TRUNCATE_THRESHOLD} lines), not the terminal.`,
+    `# Last-run outcome is also written to ${STATE_PATH} (\`nexusmem status\` reads it).`,
     '# Installed by: nexusmem hook git-post install',
     '# Remove with:  nexusmem hook git-post remove',
     'if command -v nexusmem >/dev/null 2>&1; then',
     '  mkdir -p .nexusmem',
-    `  nohup sh -c '[ "$(wc -l <${LOG_PATH} 2>/dev/null || echo 0)" -gt ${LOG_TRUNCATE_THRESHOLD} ] && : >${LOG_PATH}; nexusmem sync --quiet --auto >>${LOG_PATH} 2>&1' >/dev/null 2>&1 &`,
+    '  nohup sh -c \'',
+    `    [ "$(wc -l <${LOG_PATH} 2>/dev/null || echo 0)" -gt ${LOG_TRUNCATE_THRESHOLD} ] && : >${LOG_PATH}`,
+    `    nexusmem sync --quiet --auto >>${LOG_PATH} 2>&1`,
+    '    ec=$?',
+    '    ok=$([ "$ec" -eq 0 ] && echo true || echo false)',
+    // Atomic rename, not truncate-in-place like the log above: this file is
+    // wholesale-replaced each run (no concurrent-appender fd to protect), so
+    // a rename avoids a reader ever seeing a half-written, unparseable JSON file.
+    // Double-quoted, not single: this whole block is already inside the
+    // outer nohup sh -c '...' single-quoted argument below, and single
+    // quotes cannot nest -- one here would close that argument early.
+    `    printf "{\\"ts\\":\\"%s\\",\\"ok\\":%s,\\"exitCode\\":%s}\\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$ok" "$ec" >${STATE_PATH}.tmp && mv ${STATE_PATH}.tmp ${STATE_PATH}`,
+    "  ' >/dev/null 2>&1 &",
     'fi',
     MARK_END,
     '',
   ].join('\n');
+}
+
+export interface PostCommitSyncState {
+  ts: string;
+  ok: boolean;
+  exitCode: number;
+}
+
+/** A malformed or half-written file (e.g. from a version predating this field) is treated as absent, not fatal. */
+export function parsePostCommitSyncState(raw: string): PostCommitSyncState | null {
+  let obj: unknown;
+  try {
+    obj = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (typeof obj !== 'object' || obj === null) return null;
+
+  const o = obj as Record<string, unknown>;
+  if (typeof o.ts !== 'string' || typeof o.ok !== 'boolean' || typeof o.exitCode !== 'number') return null;
+  return { ts: o.ts, ok: o.ok, exitCode: o.exitCode };
 }
 
 export function isHookInstalled(content: string): boolean {
