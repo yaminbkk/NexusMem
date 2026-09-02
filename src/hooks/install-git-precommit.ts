@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { ensureShebang, isForeignHook, isHookInstalled, SHEBANG, stripHookSnippet, upsertHookSnippet } from './git-pre-commit.js';
+import { resolveHooksDir } from './git-hooks-dir.js';
 import {
   gitHookStatusGeneric,
   installGitHookGeneric,
@@ -39,8 +40,9 @@ const KIND: GitHookKind = {
   createForeignError: (hookPath) => new ForeignGitHookError(hookPath),
 };
 
-export function resolveGitHookTarget(repoRoot: string): GitHookTarget {
-  return { hookPath: join(repoRoot, '.git', 'hooks', 'pre-commit') };
+export async function resolveGitHookTarget(repoRoot: string): Promise<GitHookTarget> {
+  const { dir, hooksPathConfig } = await resolveHooksDir(repoRoot);
+  return { hookPath: join(dir, 'pre-commit'), hooksPathConfig };
 }
 
 export type { InstallGitHookResult };

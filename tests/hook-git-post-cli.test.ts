@@ -23,10 +23,10 @@ let dir: string;
 let hookPath: string;
 let stdout: string[];
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'nexusmem-hookgitpost-cli-'));
   gitFixture(dir, ['init', '-q', '-b', 'main'], { env: GIT_ENV });
-  hookPath = resolvePostCommitHookTarget(dir).hookPath;
+  hookPath = (await resolvePostCommitHookTarget(dir)).hookPath;
 
   stdout = [];
   vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
@@ -118,5 +118,21 @@ describe('nexusmem hook git-post', () => {
 
     const content = readFileSync(hookPath, 'utf8');
     expect(content.indexOf('npx lint-staged')).toBeLessThan(content.indexOf('nexusmem sync'));
+  });
+
+  it('installs into a Husky-style core.hooksPath instead of .git/hooks, and status flags the redirect', async () => {
+    gitFixture(dir, ['config', 'core.hooksPath', '.husky']);
+    const huskyHookPath = join(dir, '.husky', 'post-commit');
+
+    const code = await runHookGitPostInstall({ cwd: dir });
+    expect(code).toBe(0);
+    expect(stdout.join('')).toContain('core.hooksPath=.husky');
+    expect(readFileSync(huskyHookPath, 'utf8')).toContain('nexusmem sync');
+    expect(() => readFileSync(hookPath, 'utf8')).toThrow(); // must NOT write to the dead .git/hooks path
+
+    stdout.length = 0;
+    await runHookGitPostStatus({ cwd: dir });
+    expect(stdout.join('')).toContain('installed');
+    expect(stdout.join('')).toContain('core.hooksPath=.husky');
   });
 });

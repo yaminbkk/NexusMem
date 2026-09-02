@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureShebang, isForeignHook, isHookInstalled, renderHookSnippet, stripHookSnippet, upsertHookSnippet } from '../src/hooks/git-pre-commit.js';
 import { ForeignGitHookError, gitHookStatus, installGitHook, removeGitHook, resolveGitHookTarget } from '../src/hooks/install-git-precommit.js';
+import { gitFixture } from './helpers.js';
 
 describe('git pre-commit hook snippet (pure)', () => {
   it('is not installed in empty content, and empty content is not "foreign"', () => {
@@ -62,9 +63,9 @@ describe('git hook install/remove/status (filesystem, scratch repo)', () => {
   let dir: string;
   let hookPath: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'nexusmem-githook-'));
-    hookPath = resolveGitHookTarget(dir).hookPath;
+    hookPath = (await resolveGitHookTarget(dir)).hookPath;
   });
 
   afterEach(() => {
@@ -140,5 +141,61 @@ describe('git hook install/remove/status (filesystem, scratch repo)', () => {
     if (process.platform !== 'win32') {
       expect(statSync(hookPath).mode & 0o111).not.toBe(0);
     }
+  });
+});
+
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 'T',
+  GIT_AUTHOR_EMAIL: 't@example.com',
+  GIT_COMMITTER_NAME: 'T',
+  GIT_COMMITTER_EMAIL: 't@example.com',
+};
+
+/**
+ * `resolveGitHookTarget` reads `core.hooksPath`, which only takes effect
+ * inside a real git repository -- the earlier describe block's plain
+ * mkdtempSync dir never sets it, so it never exercises this path.
+ */
+describe('resolveGitHookTarget honors core.hooksPath', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'nexusmem-hookspath-'));
+    gitFixture(dir, ['init', '-q', '-b', 'main'], { env: GIT_ENV });
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('defaults to .git/hooks when core.hooksPath is unset', async () => {
+    const target = await resolveGitHookTarget(dir);
+    expect(target.hookPath).toBe(join(dir, '.git', 'hooks', 'pre-commit'));
+    expect(target.hooksPathConfig).toBeNull();
+  });
+
+  it('resolves into a Husky-style relative core.hooksPath instead of .git/hooks', async () => {
+    gitFixture(dir, ['config', 'core.hooksPath', '.husky']);
+    const target = await resolveGitHookTarget(dir);
+    expect(target.hookPath).toBe(join(dir, '.husky', 'pre-commit'));
+    expect(target.hooksPathConfig).toBe('.husky');
+  });
+
+  it('resolves an absolute core.hooksPath verbatim', async () => {
+    const absHooks = join(dir, 'custom-hooks');
+    gitFixture(dir, ['config', 'core.hooksPath', absHooks]);
+    const target = await resolveGitHookTarget(dir);
+    expect(target.hookPath).toBe(join(absHooks, 'pre-commit'));
+  });
+
+  it('installing under a Husky-style core.hooksPath writes there, not .git/hooks', async () => {
+    gitFixture(dir, ['config', 'core.hooksPath', '.husky']);
+    const target = await resolveGitHookTarget(dir);
+
+    await installGitHook(target);
+
+    expect(readFileSync(target.hookPath, 'utf8')).toContain('nexusmem precheck');
+    expect(() => readFileSync(join(dir, '.git', 'hooks', 'pre-commit'), 'utf8')).toThrow();
   });
 });

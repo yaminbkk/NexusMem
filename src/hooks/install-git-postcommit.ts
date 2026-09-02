@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import { ensureShebang, isForeignHook, isHookInstalled, SHEBANG, stripHookSnippet, upsertHookSnippet } from './git-post-commit.js';
+import { resolveHooksDir } from './git-hooks-dir.js';
 import {
   gitHookStatusGeneric,
   installGitHookGeneric,
@@ -10,6 +11,8 @@ import {
 
 export interface GitPostCommitHookTarget {
   hookPath: string;
+  /** Raw `core.hooksPath` value if the repo redirects hooks elsewhere (e.g. Husky v7+), else `null`. */
+  hooksPathConfig?: string | null;
 }
 
 /**
@@ -37,8 +40,9 @@ const KIND: GitHookKind = {
   createForeignError: (hookPath) => new ForeignPostCommitHookError(hookPath),
 };
 
-export function resolvePostCommitHookTarget(repoRoot: string): GitPostCommitHookTarget {
-  return { hookPath: join(repoRoot, '.git', 'hooks', 'post-commit') };
+export async function resolvePostCommitHookTarget(repoRoot: string): Promise<GitPostCommitHookTarget> {
+  const { dir, hooksPathConfig } = await resolveHooksDir(repoRoot);
+  return { hookPath: join(dir, 'post-commit'), hooksPathConfig };
 }
 
 export type InstallPostCommitHookResult = InstallGitHookResult;

@@ -13,6 +13,8 @@ import { dirname } from 'node:path';
 
 export interface GitHookTarget {
   hookPath: string;
+  /** Raw `core.hooksPath` value if the repo redirects hooks elsewhere (e.g. Husky v7+), else `null`. */
+  hooksPathConfig?: string | null;
 }
 
 export interface GitHookKind {

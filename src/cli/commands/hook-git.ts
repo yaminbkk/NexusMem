@@ -13,9 +13,14 @@ export interface HookGitOptions {
   force?: boolean;
 }
 
+/** Surfaces a Husky-v7-style redirect so "installed" can't be mistaken for "will fire from .git/hooks". */
+function hooksPathNote(hooksPathConfig: string): string {
+  return `  ${pc.dim(`core.hooksPath=${hooksPathConfig}`)}`;
+}
+
 export async function runHookGitInstall(opts: HookGitOptions): Promise<number> {
   const repo = await readRepoInfo(opts.cwd);
-  const target = resolveGitHookTarget(repo.root);
+  const target = await resolveGitHookTarget(repo.root);
   const result = await installGitHook(target, { force: opts.force });
 
   const lines = [
@@ -24,6 +29,7 @@ export async function runHookGitInstall(opts: HookGitOptions): Promise<number> {
       : `${pc.dim('already up to date')}`,
     `  hook ${target.hookPath}`,
   ];
+  if (target.hooksPathConfig) lines.push(hooksPathNote(target.hooksPathConfig));
   if (result.appendedToForeign) {
     lines.push(`  ${pc.yellow('appended after an existing pre-commit hook -- review')} ${target.hookPath}`);
   }
@@ -41,7 +47,7 @@ export async function runHookGitInstall(opts: HookGitOptions): Promise<number> {
 
 export async function runHookGitRemove(opts: HookGitOptions): Promise<number> {
   const repo = await readRepoInfo(opts.cwd);
-  const target = resolveGitHookTarget(repo.root);
+  const target = await resolveGitHookTarget(repo.root);
   const result = await removeGitHook(target);
 
   process.stdout.write(
@@ -55,7 +61,7 @@ export async function runHookGitRemove(opts: HookGitOptions): Promise<number> {
 
 export async function runHookGitStatus(opts: HookGitOptions): Promise<number> {
   const repo = await readRepoInfo(opts.cwd);
-  const target = resolveGitHookTarget(repo.root);
+  const target = await resolveGitHookTarget(repo.root);
   const result = await gitHookStatus(target);
 
   const statusLabel = result.installed
@@ -64,14 +70,24 @@ export async function runHookGitStatus(opts: HookGitOptions): Promise<number> {
       ? pc.yellow('a foreign hook exists (not nexusmem) -- nexusmem hook git install --force to append')
       : pc.yellow('not installed');
 
-  process.stdout.write([`${pc.dim('hook  ')} ${target.hookPath}`, `${pc.dim('status')} ${statusLabel}`, ''].join('\n'));
+  process.stdout.write(
+    [
+      `${pc.dim('hook  ')} ${target.hookPath}`,
+      `${pc.dim('status')} ${statusLabel}`,
+      target.hooksPathConfig ? hooksPathNote(target.hooksPathConfig) : '',
+      '',
+    ]
+      .filter((line) => line !== '')
+      .concat('')
+      .join('\n'),
+  );
 
   return 0;
 }
 
 export async function runHookGitPostInstall(opts: HookGitOptions): Promise<number> {
   const repo = await readRepoInfo(opts.cwd);
-  const target = resolvePostCommitHookTarget(repo.root);
+  const target = await resolvePostCommitHookTarget(repo.root);
   const result = await installPostCommitGitHook(target, { force: opts.force });
 
   const lines = [
@@ -80,6 +96,7 @@ export async function runHookGitPostInstall(opts: HookGitOptions): Promise<numbe
       : `${pc.dim('already up to date')}`,
     `  hook ${target.hookPath}`,
   ];
+  if (target.hooksPathConfig) lines.push(hooksPathNote(target.hooksPathConfig));
   if (result.appendedToForeign) {
     lines.push(`  ${pc.yellow('appended after an existing post-commit hook -- review')} ${target.hookPath}`);
   }
@@ -98,7 +115,7 @@ export async function runHookGitPostInstall(opts: HookGitOptions): Promise<numbe
 
 export async function runHookGitPostRemove(opts: HookGitOptions): Promise<number> {
   const repo = await readRepoInfo(opts.cwd);
-  const target = resolvePostCommitHookTarget(repo.root);
+  const target = await resolvePostCommitHookTarget(repo.root);
   const result = await removePostCommitGitHook(target);
 
   process.stdout.write(
@@ -112,7 +129,7 @@ export async function runHookGitPostRemove(opts: HookGitOptions): Promise<number
 
 export async function runHookGitPostStatus(opts: HookGitOptions): Promise<number> {
   const repo = await readRepoInfo(opts.cwd);
-  const target = resolvePostCommitHookTarget(repo.root);
+  const target = await resolvePostCommitHookTarget(repo.root);
   const result = await postCommitGitHookStatus(target);
 
   const statusLabel = result.installed
@@ -121,7 +138,17 @@ export async function runHookGitPostStatus(opts: HookGitOptions): Promise<number
       ? pc.yellow('a foreign hook exists (not nexusmem) -- nexusmem hook git-post install --force to append')
       : pc.yellow('not installed');
 
-  process.stdout.write([`${pc.dim('hook  ')} ${target.hookPath}`, `${pc.dim('status')} ${statusLabel}`, ''].join('\n'));
+  process.stdout.write(
+    [
+      `${pc.dim('hook  ')} ${target.hookPath}`,
+      `${pc.dim('status')} ${statusLabel}`,
+      target.hooksPathConfig ? hooksPathNote(target.hooksPathConfig) : '',
+      '',
+    ]
+      .filter((line) => line !== '')
+      .concat('')
+      .join('\n'),
+  );
 
   return 0;
 }
