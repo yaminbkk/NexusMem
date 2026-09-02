@@ -86,10 +86,12 @@ export async function runInit(opts: InitOptions): Promise<number> {
       const result = await installHook(target);
       lines.push(
         '',
-        `${pc.green(result.changed ? 'installed' : 'already installed')} shell hook`,
+        `${pc.green(result.changed ? 'installed' : 'already installed')} shell hook (${target.shell})`,
         `  profile ${target.profilePath}`,
         `  log     ${target.logPath}`,
-        `  open a new PowerShell window (or run \`. $PROFILE\`) for it to take effect`,
+        target.shell === 'pwsh'
+          ? `  open a new PowerShell window (or run \`. $PROFILE\`) for it to take effect`
+          : `  open a new shell (or run \`. ${target.profilePath}\`) for it to take effect`,
       );
     } catch (err) {
       if (err instanceof ProfileNotFoundError) {

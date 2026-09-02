@@ -1,4 +1,4 @@
-import { Command } from 'commander';
+import { Command, Option } from 'commander';
 import pc from 'picocolors';
 import { ConfigError } from '../config/workspace.js';
 import { readOwnVersion } from '../core/version.js';
@@ -148,26 +148,34 @@ program
     )(),
   );
 
+const SHELL_CHOICES = ['pwsh', 'bash', 'zsh'] as const;
+function shellOption(): Option {
+  return new Option('--shell <kind>', 'pwsh, bash, or zsh -- default: auto-detected from platform/$SHELL').choices(SHELL_CHOICES);
+}
+
 program
   .command('hook')
-  .description('Manage the opt-in PowerShell hook that logs cwd + exit code + timestamp')
+  .description('Manage the opt-in shell hook that logs cwd + exit code + timestamp')
   .addCommand(
     new Command('install')
-      .description('Install (or update) the hook in your PowerShell profile')
-      .option('--profile <path>', 'override the auto-detected $PROFILE path')
-      .action((options) => guard(() => runHookInstall({ profile: options.profile }))()),
+      .description('Install (or update) the hook in your shell profile')
+      .addOption(shellOption())
+      .option('--profile <path>', 'override the auto-detected profile path')
+      .action((options) => guard(() => runHookInstall({ shell: options.shell, profile: options.profile }))()),
   )
   .addCommand(
     new Command('remove')
-      .description('Remove the hook block from your PowerShell profile')
-      .option('--profile <path>', 'override the auto-detected $PROFILE path')
-      .action((options) => guard(() => runHookRemove({ profile: options.profile }))()),
+      .description('Remove the hook block from your shell profile')
+      .addOption(shellOption())
+      .option('--profile <path>', 'override the auto-detected profile path')
+      .action((options) => guard(() => runHookRemove({ shell: options.shell, profile: options.profile }))()),
   )
   .addCommand(
     new Command('status')
       .description('Show whether the hook is installed')
-      .option('--profile <path>', 'override the auto-detected $PROFILE path')
-      .action((options) => guard(() => runHookStatus({ profile: options.profile }))()),
+      .addOption(shellOption())
+      .option('--profile <path>', 'override the auto-detected profile path')
+      .action((options) => guard(() => runHookStatus({ shell: options.shell, profile: options.profile }))()),
   )
   .addCommand(
     new Command('git')

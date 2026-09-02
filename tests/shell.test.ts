@@ -360,27 +360,27 @@ describe('hook install/remove/status (filesystem, scratch profile)', () => {
   });
 
   it('creates the profile file and directory if neither exists', async () => {
-    const result = await installHook({ profilePath, logPath });
+    const result = await installHook({ shell: 'pwsh', profilePath, logPath });
     expect(result.changed).toBe(true);
-    expect((await hookStatus({ profilePath, logPath })).installed).toBe(true);
+    expect((await hookStatus({ shell: 'pwsh', profilePath, logPath })).installed).toBe(true);
   });
 
   it('is a no-op the second time with the same log path', async () => {
-    await installHook({ profilePath, logPath });
-    const second = await installHook({ profilePath, logPath });
+    await installHook({ shell: 'pwsh', profilePath, logPath });
+    const second = await installHook({ shell: 'pwsh', profilePath, logPath });
     expect(second.changed).toBe(false);
     expect(second.alreadyInstalled).toBe(true);
   });
 
   it('removes cleanly and status reflects it', async () => {
-    await installHook({ profilePath, logPath });
-    const removed = await removeHook({ profilePath, logPath });
+    await installHook({ shell: 'pwsh', profilePath, logPath });
+    const removed = await removeHook({ shell: 'pwsh', profilePath, logPath });
     expect(removed.changed).toBe(true);
-    expect((await hookStatus({ profilePath, logPath })).installed).toBe(false);
+    expect((await hookStatus({ shell: 'pwsh', profilePath, logPath })).installed).toBe(false);
   });
 
   it('removing when nothing is installed is a safe no-op', async () => {
-    const result = await removeHook({ profilePath, logPath });
+    const result = await removeHook({ shell: 'pwsh', profilePath, logPath });
     expect(result.changed).toBe(false);
   });
 });

@@ -46,3 +46,17 @@ export async function resolvePowerShellProfilePath(exe: 'pwsh' | 'powershell' = 
     return null;
   }
 }
+
+/**
+ * Bash and zsh have no dynamic-profile-path concept the way PowerShell's
+ * `$PROFILE` does -- `~/.bashrc`/`~/.zshrc` are the fixed convention, so no
+ * subprocess is needed to ask the shell (an explicit `--profile` override
+ * covers anyone whose setup differs, e.g. a login-shell `.bash_profile`).
+ */
+export function resolveBashProfilePath(): string {
+  return join(homedir(), '.bashrc');
+}
+
+export function resolveZshProfilePath(): string {
+  return join(homedir(), '.zshrc');
+}

@@ -93,3 +93,28 @@ describe('nexusmem hook', () => {
     expect(stdout.join('')).toContain('not installed');
   });
 });
+
+describe.each(['bash', 'zsh'] as const)('nexusmem hook install/remove/status --shell %s', (shell) => {
+  it('installs into the explicitly-chosen shell profile regardless of the host platform default', async () => {
+    const code = await runHookInstall({ shell, profile: profilePath, logPath });
+
+    expect(code).toBe(0);
+    expect(stdout.join('')).toContain(`shell hook (${shell})`);
+    expect(readFileSync(profilePath, 'utf8')).toContain('nexusmem');
+
+    stdout.length = 0;
+    await runHookStatus({ shell, profile: profilePath, logPath });
+    expect(stdout.join('')).toContain('installed');
+    expect(stdout.join('')).toContain(shell);
+  });
+
+  it('shows the platform caveat note only for bash, never for zsh', async () => {
+    await runHookInstall({ shell, profile: profilePath, logPath });
+    const out = stdout.join('');
+    if (shell === 'bash') {
+      expect(out).toContain('.bash_profile');
+    } else {
+      expect(out).not.toContain('.bash_profile');
+    }
+  });
+});
