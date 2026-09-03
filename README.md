@@ -539,6 +539,11 @@ Tests are behavioral rather than snapshot-based, and several are regressions tie
 observed failures. `tests/git-errors.test.ts` injects a fake `spawn` to exercise the Windows
 process-spawn faults, which cannot be provoked on demand.
 
+Bug fixes, test coverage, and small focused features are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md) for the workflow, or browse issues labeled
+[`good first issue`](https://github.com/yaminbkk/nexusmem/labels/good%20first%20issue)
+for something scoped and self-contained to start with.
+
 ## On how this was built
 
 This started as an experiment in whether a local context-memory engine for coding agents was viable,
