@@ -42,6 +42,17 @@ Set Height 760
 # visitor sees is the query answer with no context -- worse, not better.
 # Start at `nexusmem init` like the tape does.
 
+# --- Story --------------------------------------------------------------
+# The 7-beat pitch this recording tells, and which real command carries each
+# beat (there's no separate "open Claude Code" shot -- Claude Code calls the
+# same sync_project/search_memory MCP tools that `nexusmem sync`/`query` wrap,
+# so the CLI output IS what the agent would see):
+#   1-2. clone + install NexusMem  -> hidden setup below, narrated not shown
+#   3.   sync_project              -> `nexusmem sync --github` (real, live)
+#   4-6. ask about the past,
+#        NexusMem retrieves context -> `nexusmem query ...` (real, live)
+#   7.   the agent answers          -> that query's own printed output
+
 # Setup is recorded but not shown: clean db, quiet prompt, no git noise.
 # The prompt is hardcoded rather than starship on purpose -- a prompt that
 # renders the current branch makes the recording differ run to run.
@@ -59,15 +70,24 @@ Type "rm -rf .nexusmem" Enter
 Type "clear" Enter
 Show
 
-Sleep 1s
+Sleep 0.6s
+
+# Beats 1-2 (clone + install) already happened in the hidden setup above --
+# narrated here rather than replayed live: a real `git clone` + `npm install
+# -g nexusmem` cost 10-20s of real network/registry time on their own, which
+# leaves no budget left for the two beats that are actually the payoff.
+Type `# 1-2. clone + install NexusMem` Sleep 300ms Enter
+Sleep 300ms
 
 Type "nexusmem init" Sleep 300ms Enter
-Sleep 1.2s
+Sleep 0.8s
 
 # Sync is real, not staged -- whatever it prints here is this repo's own
 # history, indexed live during the recording. --github pulls this repo's own
 # real issue/PR threads via the `gh` CLI (v0.10.0's new opt-in source) --
 # the "14 github thread(s)" in the summary line is real, not a mock count.
+Type `# 3. sync_project -- real history` Sleep 300ms Enter
+Sleep 300ms
 Type "nexusmem sync --github" Sleep 300ms Enter
 Sleep 7.5s
 
@@ -82,7 +102,7 @@ Sleep 7.5s
 # own search results the next time someone re-records it. Learned that the
 # hard way -- an earlier take of a different query put docs/demo.tape itself
 # into the answer below.
-Type `# a real issue, a real contributor's PR, the code it shipped` Sleep 300ms Enter
+Type `# ask about the past -- a real issue + PR it shipped` Sleep 300ms Enter
 Sleep 300ms
 
 # This specific query is the payoff: it's a genuine issue this project's own
@@ -90,7 +110,9 @@ Sleep 300ms
 # contributor (@Amir-A664), not the maintainer. One query, one ranked answer,
 # spanning a github_thread issue, a github_thread PR, two commits and the
 # CHANGELOG entry they landed -- four different sources, one story.
+# The printed answer below is beat 7 -- there's no separate "agent answers"
+# shot, this output is what an agent grounds its answer in.
 Type `nexusmem query "warn about stale project identities" --budget 550` Sleep 300ms Enter
 Sleep 7s
 
-Sleep 1s
+Sleep 0.6s
