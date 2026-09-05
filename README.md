@@ -23,6 +23,8 @@ The shell history is the part worth caring about. Git tells an agent what shippe
 tells it what was attempted, in what order, and which commands exited non-zero. That information
 exists nowhere else, and it disappears when your terminal scrollback rolls over.
 
+![How NexusMem works: git commits, shell commands with their real exit codes, docs, and GitHub threads flow into a local SQLite index, which returns a ranked, token-budgeted slice of that history so your coding agent answers with a real citation instead of a guess](docs/how-it-works.svg)
+
 **Contents:** [Try it](#try-it) · [Exact shell capture](#optional-exact-shell-capture) ·
 [Failure → fix chains](#failure--fix-chains-opt-in) · [How retrieval works](#how-retrieval-works) ·
 [Session summaries](#session-summaries-optional-local-model) ·
