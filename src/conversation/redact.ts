@@ -26,7 +26,8 @@ interface Rule {
   render?: (groups: readonly string[]) => string;
 }
 
-const MARK = '[redacted]';
+export const REDACTION_MARK = '[redacted]';
+const MARK = REDACTION_MARK;
 // Every rule refuses to re-match its own marker, so redacting twice changes nothing.
 const NOT_MARK = String.raw`(?!\[redacted\])`;
 const keepPrefix = (groups: readonly string[]): string => `${groups[0]}${MARK}`;
@@ -40,9 +41,10 @@ const SECRET_KEY = String.raw`(?:[A-Za-z0-9_.-]{0,100}?${SECRET_KEYWORD}|(?:-{1,
 // Type annotations (`password: string`) are not values; everything else is hidden, however short.
 const TYPE_WORD = String.raw`(?:string|number|boolean|bool|int|str|null|undefined|none|nil|true|false|any|unknown|object)(?=[\s;,)|\]}>]|$)`;
 // A quoted value runs to its *closing* quote: an escaped quote inside it (--password "pa\"ss")
-// must not end the match, or the tail after it survives redaction. Bounded so a runaway quote
-// cannot walk the whole line.
-const SECRET_VALUE = String.raw`(?:"(?:\\.|[^"\\\r\n]){1,500}"|'(?:\\.|[^'\\\r\n]){1,500}'|\x60(?:\\.|[^\x60\\\r\n]){1,500}\x60|[^\s'"\x60]+)`;
+// must not end the match, or the tail after it survives redaction. Bounded so an ordinary value
+// stops at its own quote; one the bound cannot close (over 500 chars, or never closed) fails
+// closed and takes the rest of the line rather than none of it.
+const SECRET_VALUE = String.raw`(?:"(?:\\.|[^"\\\r\n]){1,500}"|'(?:\\.|[^'\\\r\n]){1,500}'|\x60(?:\\.|[^\x60\\\r\n]){1,500}\x60|"(?!")[^\r\n]+|'(?!')[^\r\n]+|\x60(?!\x60)[^\r\n]+|[^\s'"\x60]+)`;
 // The rest of one shell command: stops at a pipe, `;`, `&` or newline so a tool name never reaches into the next command.
 const SAME_COMMAND = String.raw`[^\n|;&]{0,500}?`;
 // A next argument that is a flag or a redirection is not a value.
@@ -131,11 +133,13 @@ const RULES: Rule[] = [
     render: keepPrefix,
   },
   // Quoted credentials get their own branches: `curl -u "user:pass word"` holds a space, which
-  // the unquoted branch would stop at, leaving the rest of the password in the text.
+  // the unquoted branch would stop at, leaving the rest of the password in the text. Like
+  // SECRET_VALUE, they step over escaped characters so `"alice:pa\"ss"` is not cut at `\"`. Inside
+  // quotes the user name may hold a space too (`"alice smith:pw"`); only the quote ends it.
   {
     name: 'curl-user-password',
     pattern: new RegExp(
-      String.raw`(${CURL_USER}"[^\s:"]*:)${NOT_MARK}[^"\r\n]*|(${CURL_USER}'[^\s:']*:)${NOT_MARK}[^'\r\n]*|(${CURL_USER}[^\s:'"]*:)${NOT_MARK}[^\s'"]+`,
+      String.raw`(${CURL_USER}"(?:\\.|[^:"\\\r\n])*:)${NOT_MARK}(?:\\.|[^"\\\r\n])*|(${CURL_USER}'(?:\\.|[^:'\\\r\n])*:)${NOT_MARK}(?:\\.|[^'\\\r\n])*|(${CURL_USER}[^\s:'"]*:)${NOT_MARK}[^\s'"]+`,
       'g',
     ),
     highConfidence: true,

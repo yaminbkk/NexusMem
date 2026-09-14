@@ -61,6 +61,14 @@ describe('readCaptureStatus', () => {
     expect(JSON.stringify(status)).not.toContain('psql');
   });
 
+  it('records a drop even when the workspace directory does not exist yet', () => {
+    // The first hook run on a machine can drop before anything else has created the directory.
+    dropPath = join(dir, 'not-yet', 'created', 'agent-capture-drops.json');
+    recordCaptureDrop('unparsable-json', 'other', dropPath, minutesAgo(1));
+
+    expect(readCaptureStatus(paths())).toMatchObject({ health: 'degraded', lastDropReason: 'unparsable-json', drops: 1 });
+  });
+
   it('reports never-observed when the hook has never written anything', () => {
     expect(readCaptureStatus(paths())).toMatchObject({ health: 'never-observed', lastEventAt: null, drops: 0 });
   });

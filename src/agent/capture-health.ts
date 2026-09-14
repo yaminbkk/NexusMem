@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
 import { globalWorkspaceDir } from '../config/paths.js';
 import { agentEventLogPath } from './paths.js';
 import { parseAgentEventLine } from './record.js';
@@ -24,7 +24,14 @@ import { parseAgentEventLine } from './record.js';
 export type CaptureHealth = 'healthy' | 'stale' | 'degraded' | 'never-observed' | 'unknown';
 
 /** Reasons the hook can record. A closed set, so no payload text can ever reach the file. */
-export const DROP_REASONS = ['unparsable-json', 'unsupported-event', 'unsupported-tool', 'missing-fields', 'write-failed'] as const;
+export const DROP_REASONS = [
+  'unparsable-json',
+  'unsupported-event',
+  'unsupported-tool',
+  'missing-fields',
+  'write-failed',
+  'payload-too-large',
+] as const;
 export type DropReason = (typeof DROP_REASONS)[number];
 
 /**
@@ -86,6 +93,8 @@ export function recordCaptureDrop(
     const safeFamily: DropFamily = isDropFamily(family) ? family : 'other';
     const previous = readDropState(path);
     const drops = typeof previous.drops === 'number' && Number.isFinite(previous.drops) ? previous.drops : 0;
+    // A drop can be the first thing the hook ever writes, before anything has created the directory.
+    mkdirSync(dirname(path), { recursive: true });
     writeFileSync(
       path,
       JSON.stringify({ lastDropAt: now.toISOString(), lastDropReason: safeReason, lastDropFamily: safeFamily, drops: drops + 1 }),

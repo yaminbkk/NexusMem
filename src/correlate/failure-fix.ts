@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { REDACTION_MARK } from '../conversation/redact.js';
 import { significantTokens } from '../store/fts.js';
 import type { MemoryStore } from '../store/store.js';
 
@@ -12,7 +13,8 @@ import type { MemoryStore } from '../store/store.js';
  *
  * - **Same-command retry.** A later `shell_command` in the same project and
  *   `cwd`, the *exact* normalized command text (trim + collapse whitespace +
- *   lowercase), `exitCode === 0`, within `retryWindowMs`. High precision by
+ *   lowercase) -- or, when both rows are agent-recorded, the same `execHash`
+ *   -- `exitCode === 0`, within `retryWindowMs`. High precision by
  *   construction, low recall: a fix that changes the command itself (a typo
  *   correction, an added flag) is invisible to an exact-text match. Not
  *   attempted here -- fuzzy matching is a stretch goal, not this pass's job.
@@ -98,6 +100,10 @@ interface FailureRow {
   id: string;
   ts_epoch: number;
   command: string | null;
+  /** Hash of the raw, pre-redaction command; absent on rows written before it was recorded. */
+  command_hash: string | null;
+  /** Agent rows only: the execution the command reduces to, across cd and exit-echo wrappers. */
+  exec_hash: string | null;
   cwd: string | null;
   source: string | null;
 }
@@ -194,7 +200,9 @@ export function correlateFailures(store: MemoryStore, projectId: string, opts: C
 
   const failures = db
     .prepare(
-      `SELECT id, ts_epoch, source, json_extract(meta, '$.command') AS command, json_extract(meta, '$.cwd') AS cwd
+      `SELECT id, ts_epoch, source, json_extract(meta, '$.command') AS command,
+              json_extract(meta, '$.commandHash') AS command_hash, json_extract(meta, '$.execHash') AS exec_hash,
+              json_extract(meta, '$.cwd') AS cwd
        FROM nodes
        WHERE project_id = ? AND kind = 'shell_command'
          AND source_ts IS NOT NULL
@@ -213,8 +221,13 @@ export function correlateFailures(store: MemoryStore, projectId: string, opts: C
        AND json_extract(n.meta, '$.exitCode') = 0
        AND json_extract(n.meta, '$.cwd') IS NOT NULL
        AND n.ts_epoch > ? AND n.ts_epoch <= ?
-       AND lower(trim(json_extract(n.meta, '$.command'))) = ?
        AND (json_extract(n.meta, '$.cwd') IS ? OR json_extract(n.meta, '$.cwd') = ?)
+       AND CASE
+         WHEN ? IS NOT NULL AND json_extract(n.meta, '$.execHash') IS NOT NULL
+           THEN json_extract(n.meta, '$.execHash') = ?
+         ELSE lower(trim(json_extract(n.meta, '$.command'))) = ?
+           AND (? IS NULL OR json_extract(n.meta, '$.commandHash') = ?)
+       END
      ORDER BY n.ts_epoch ASC LIMIT 1`,
   );
 
@@ -234,21 +247,35 @@ export function correlateFailures(store: MemoryStore, projectId: string, opts: C
   for (const failure of failures) {
     if (!failure.command) continue;
 
-    const retry = findRetry.get(
-      projectId,
-      failure.ts_epoch,
-      failure.ts_epoch + retryWindowMs,
-      normalizeCommand(failure.command),
-      failure.cwd,
-      failure.cwd,
-    ) as RetryRow | undefined;
+    // Two agent rows compare by execHash, so `cd "<cwd>" && cmd; echo "exit: $?"` and a bare `cmd` are
+    // one execution. Anything else compares text as before. Redaction can make different raw commands
+    // (TOKEN=a cmd, TOKEN=b cmd) store identical text, so a redacted command must also match on the
+    // raw-command hash; without one ('' never matches) the text comparison is ambiguous and fails.
+    const redacted = failure.command.includes(REDACTION_MARK);
+    const requiredHash = redacted ? (failure.command_hash ?? '') : null;
+    const retry =
+      redacted && !failure.command_hash && !failure.exec_hash
+        ? undefined
+        : (findRetry.get(
+            projectId,
+            failure.ts_epoch,
+            failure.ts_epoch + retryWindowMs,
+            failure.cwd,
+            failure.cwd,
+            failure.exec_hash,
+            failure.exec_hash,
+            normalizeCommand(failure.command),
+            requiredHash,
+            requiredHash,
+          ) as RetryRow | undefined);
     if (retry) {
       // An attempt is files changed + execution + result. For agent-recorded
       // runs all three are known, so an identical command that suddenly passes
       // with nothing edited in between is not evidence of a fix -- it is a
       // flake or a change of environment. Ambiguous beats a confident false
       // link. Human shell history records no files at all, so this can only be
-      // asked of agent-recorded pairs.
+      // asked of agent-recorded pairs. Only the earliest pass is considered, deliberately: once the
+      // command passed unexplained, a later edited pass cannot be credited with fixing this failure.
       const bothAgentRecorded = isAgentSource(failure.source) && isAgentSource(retry.source);
       if (bothAgentRecorded && retry.file_count === 0) {
         unexplainedRetries += 1;

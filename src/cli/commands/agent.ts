@@ -106,6 +106,10 @@ export async function runAgentInstall(opts: AgentCommandOptions): Promise<number
   return 0;
 }
 
+/** Settings files are untrusted: show a C0/C1 control character as `\xNN` rather than letting it drive the terminal. */
+const printablePath = (path: string): string =>
+  path.replace(/[\x00-\x1f\x7f-\x9f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+
 /** npm's own name for the directory `npx` unpacks a package into, on every platform. */
 function isNpxCacheInstall(command: string): boolean {
   return hookCommandPaths(command).some((p) => /[\\/]_npx[\\/]/.test(p));
@@ -165,7 +169,7 @@ export async function runAgentStatus(opts: AgentCommandOptions): Promise<number>
       ...(missing.length > 0
         ? [
             `${pc.dim('paths     ')} ${pc.yellow(`${missing.length} path(s) in the installed hook do not exist here`)}`,
-            ...missing.map((p) => `${pc.dim('          ')} ${p}`),
+            ...missing.map((p) => `${pc.dim('          ')} ${printablePath(p)}`),
             `${pc.dim('          ')} ${pc.dim('reinstall from the environment Claude Code runs in')}`,
           ]
         : []),
@@ -264,8 +268,8 @@ export async function runAgentRecall(opts: AgentRecallOptions = {}): Promise<num
   try {
     const raw = opts.input ?? (await readStdin());
     const event = parseHookPayload(raw, new Date().toISOString());
-    if (!event || event.kind !== 'command' || event.outcome !== 'fail' || !event.commandHash || !event.cwd) return 0;
-    if (!shouldInject(event.sessionId, event.commandHash)) return 0;
+    if (!event || event.kind !== 'command' || event.outcome !== 'fail' || !event.execHash || !event.cwd) return 0;
+    if (!shouldInject(event.sessionId, event.execHash)) return 0;
 
     const repo = await readRepoInfo(event.cwd);
     const ws = resolveWorkspace(repo.root);
@@ -276,13 +280,13 @@ export async function runAgentRecall(opts: AgentRecallOptions = {}): Promise<num
     const store = MemoryStore.open(ws.dbPath);
     let recall: ReturnType<typeof recallFailure>;
     try {
-      recall = recallFailure(store, projectId, event.commandHash);
+      recall = recallFailure(store, projectId, event.execHash);
     } finally {
       store.close();
     }
     if (!recall) return 0;
 
-    markInjected(event.sessionId, event.commandHash);
+    markInjected(event.sessionId, event.execHash);
     out(
       `${JSON.stringify({
         hookSpecificOutput: { hookEventName: 'PostToolUseFailure', additionalContext: recall.text },

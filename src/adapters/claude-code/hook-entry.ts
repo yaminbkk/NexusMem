@@ -30,7 +30,11 @@ async function main(): Promise<void> {
   let size = 0;
   for await (const chunk of process.stdin) {
     size += (chunk as Buffer).length;
-    if (size > MAX_EVENT_BYTES) drop();
+    if (size > MAX_EVENT_BYTES) {
+      // Never parsed, so which hook sent it is unknown; an edit carrying a large file can land here.
+      recordCaptureDrop('payload-too-large', 'other', dropStatePath());
+      drop();
+    }
     chunks.push(chunk as Buffer);
   }
   // Windows PowerShell can prepend a BOM to a redirected stdin; the parser trims it.

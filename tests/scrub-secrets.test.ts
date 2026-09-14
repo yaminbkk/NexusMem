@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -144,6 +144,41 @@ describe('scrubDatabase', () => {
     expect(backups()).toEqual([]);
   });
 
+  it('names the copy it could neither protect nor remove, so it can be deleted by hand', async () => {
+    const before = readFileSync(dbPath);
+
+    const err = await scrubDatabase(dbPath, {
+      apply: true,
+      protectBackup: () => Promise.reject(new Error('EPERM: chmod refused')),
+      removeBackup: () => Promise.reject(new Error('EBUSY: resource busy')),
+    }).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ScrubBackupError);
+    const [left] = backups();
+    expect(left).toBeDefined();
+    const message = (err as Error).message;
+    expect(message).toContain(join(dir, left!));
+    expect(message).toContain('EPERM: chmod refused');
+    expect(message).toContain('EBUSY: resource busy');
+    expect(message).not.toContain(SECRET);
+    expect(readFileSync(dbPath).equals(before)).toBe(true);
+  });
+
+  // Windows has no Unix modes (chmod only toggles read-only), so only POSIX can observe this.
+  it.skipIf(process.platform === 'win32')('creates the backup owner-only, before a single page is copied into it', async () => {
+    let modeBeforeProtect: number | null = null;
+    const r = await scrubDatabase(dbPath, {
+      apply: true,
+      // Observes the file as db.backup left it, before the chmod would mask a world-readable window.
+      protectBackup: async (path) => {
+        modeBeforeProtect = statSync(path).mode & 0o777;
+      },
+    });
+
+    expect(r.backupPath).not.toBeNull();
+    expect(modeBeforeProtect).toBe(0o600);
+  });
+
   it('still purges on-disk remnants when re-embedding fails', async () => {
     const failing = {
       id: 'failing-provider',
@@ -158,7 +193,26 @@ describe('scrubDatabase', () => {
     expect(r.remnantsPurged).toBe(true);
     expect(onDisk(dbPath, SECRET)).toBe(false);
     expect(r.reembedded).toBe(0);
-    expect(r.embeddingsPending).toBe(r.embeddingsDropped);
+    expect(r.embeddingsPending).toBe(withStore(dbPath, (store) => store.countNodesNeedingEmbedding(P)));
+  });
+
+  it('reports pending embeddings as the database counts them when re-embedding fails with a backlog', async () => {
+    withStore(dbPath, (store) =>
+      store.upsertNodes(
+        [1, 2, 3].map((n) => node({ id: `backlog-${n}`, kind: 'note', source: 'x', title: `note ${n}`, body: `unrelated note ${n}` })),
+      ),
+    );
+    const failing = {
+      id: 'failing-provider',
+      dimensions: EMBEDDING_DIM,
+      embed: () => Promise.reject(new Error('connect ECONNREFUSED 127.0.0.1:11434')),
+    };
+
+    const r = await scrubDatabase(dbPath, { apply: true, embeddingProvider: failing as never });
+
+    expect(r.embeddingsDropped).toBe(4);
+    // Not dropped minus re-embedded: a provider change can invalidate other vectors before it fails.
+    expect(r.embeddingsPending).toBe(withStore(dbPath, (store) => store.countNodesNeedingEmbedding(P)));
   });
 
   it('re-embedding drains the project backlog too, and says so instead of clamping the count', async () => {

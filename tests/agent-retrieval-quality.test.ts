@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -12,6 +12,7 @@ import { collectAgentEvents } from '../src/collectors/agent-events.js';
 import { readConfig, resolveWorkspace, writeConfig } from '../src/config/workspace.js';
 import { buildScenarioRepo } from '../eval/ambient/scenario.js';
 import { MemoryStore } from '../src/store/store.js';
+import { gitFixture } from './helpers.js';
 
 /**
  * The weaknesses a real tester reported, pinned where the behaviour is
@@ -55,53 +56,76 @@ afterEach(() => {
 
 describe('ambient injection stays silent when the evidence is weak', () => {
   let store: MemoryStore;
+  let repo: string;
+  let session = 0;
 
-  beforeEach(() => {
-    store = MemoryStore.open(join(dir, 'memory.db'));
+  const recallFor = async (command: string): Promise<string> => {
+    const out: string[] = [];
+    await runAgentRecall({
+      input: JSON.stringify({
+        session_id: `quality-control-${(session += 1)}`,
+        cwd: repo,
+        hook_event_name: 'PostToolUseFailure',
+        tool_name: 'Bash',
+        tool_input: { command },
+        tool_use_id: `tc${session}`,
+        error: 'Exit code 1\nsomething',
+      }),
+      out: (c) => out.push(c),
+    });
+    return out.join('');
+  };
+
+  // Recall resolves the repository and its workspace database from the payload's cwd, so the
+  // history has to live where production looks for it -- a bare temp dir makes every assertion
+  // that recall stays silent pass without recall ever running.
+  beforeEach(async () => {
+    repo = realpathSync.native(dir);
+    const g = (...args: string[]) => gitFixture(repo, args, { env: process.env });
+    g('init', '-q', '-b', 'main');
+    writeFileSync(join(repo, 'a.txt'), 'x\n');
+    g('add', '.');
+    g('-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-q', '-m', 'init');
+    await runInit({ cwd: repo, force: false, hook: false, enableConversation: false, out: () => {} });
+    const ws = resolveWorkspace(repo);
+    const { projectId } = await readConfig(ws);
+    store = MemoryStore.open(ws.dbPath);
     store.upsertNodes(
       collectAgentEvents(
         [
-          agentEvent({ kind: 'edit', filePath: `${ROOT}/src/a.ts`, outcome: 'ok', exitCode: null, ts: at(0) }, 1),
-          agentEvent({ command: 'npm test', ts: at(1) }, 2),
+          agentEvent({ kind: 'edit', filePath: `${repo}/src/a.ts`, outcome: 'ok', exitCode: null, cwd: repo, ts: at(0) }, 1),
+          agentEvent({ command: 'npm test', cwd: repo, ts: at(1) }, 2),
         ],
-        PROJECT,
-        { repoRoot: ROOT },
+        projectId,
+        { repoRoot: repo },
       ),
     );
   });
 
   afterEach(() => store.close());
 
+  it('control: the exact failing command does inject, so the silences below are real', async () => {
+    expect(await recallFor('npm test')).toContain('NexusMem:');
+  });
+
   it('does not match a command that merely shares words with a failing one', async () => {
     // Same tool, same words, different run: matching is on the raw command hash,
     // so "npm test" history cannot leak into "npm test -- --watch".
-    const out: string[] = [];
-    await runAgentRecall({
-      input: JSON.stringify({
-        session_id: 'q1',
-        cwd: dir,
-        hook_event_name: 'PostToolUseFailure',
-        tool_name: 'Bash',
-        tool_input: { command: 'npm test -- --watch' },
-        tool_use_id: 't1',
-        error: 'Exit code 1\nsomething',
-      }),
-      out: (c) => out.push(c),
-    });
-
-    expect(out.join('')).toBe('');
+    expect(await recallFor('npm test -- --watch')).toBe('');
   });
 
-  it('KNOWN LIMITATION: an agent that hides the exit code gets no recall', async () => {
-    // `node check.js 2>&1 | head` and `cmd; echo $?` both exit 0, so Claude Code
-    // reports success and PostToolUseFailure never fires. Measured in the eval:
-    // recall fired in 1 of 3 runs for exactly this reason. Pinned so that a
-    // future change to this behaviour is a deliberate one.
+  it('KNOWN LIMITATION: a pipe/redirect that swallows the real exit code still gets no recall', async () => {
+    // `node check.js 2>&1 | head` exits 0 -- it's `head`'s own exit code, not
+    // the command's -- so Claude Code reports success and PostToolUseFailure
+    // never fires. Unlike the `cmd; echo "EXIT:$?"` form (see the sibling test
+    // below, addressed in the Phase-5.1 exit-status recovery), stdout here
+    // carries no recognisable status at all: there is nothing left to recover
+    // it from. Pinned so a future change to this remaining gap is deliberate.
     const out: string[] = [];
     await runAgentRecall({
       input: JSON.stringify({
         session_id: 'q2',
-        cwd: dir,
+        cwd: repo,
         hook_event_name: 'PostToolUse',
         tool_name: 'Bash',
         tool_input: { command: 'npm test' },

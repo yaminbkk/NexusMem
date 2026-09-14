@@ -29,6 +29,7 @@ interface HookPayload {
   tool_name?: unknown;
   tool_use_id?: unknown;
   tool_input?: { command?: unknown; file_path?: unknown; notebook_path?: unknown };
+  tool_response?: { stdout?: unknown };
   error?: unknown;
   is_interrupt?: unknown;
   duration_ms?: unknown;
@@ -37,6 +38,51 @@ interface HookPayload {
 
 const str = (v: unknown): string | undefined => (typeof v === 'string' && v.length > 0 ? v : undefined);
 const num = (v: unknown): number | null => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+/**
+ * Measured in the Phase-5 eval: 15 of 17 real Bash calls hid the exit status
+ * of the command they actually cared about behind one of these -- `cmd;
+ * echo "EXIT:$?"`, `cmd; echo "exit: $?"`, `cmd; echo "exit=$?"` -- so the
+ * *outer* shell invocation Claude Code's hook sees is `echo`'s own exit code
+ * (0), and `PostToolUseFailure` never fires even though `cmd` failed.
+ *
+ * `tool_response.stdout` is the only place that status can still be found,
+ * and only in this literal form: only the LAST non-blank line is examined,
+ * and only if it is *exactly* `exit[:=]<digits>` (case-insensitive) with
+ * nothing else on it. This is a closed set of known echo spellings, not
+ * free-text parsing -- a program whose own output happens to mention "exit
+ * code" (e.g. "Process finished with exit code 1") does not match, because
+ * that text is not alone on its line and uses neither `:` nor `=`. A
+ * malformed or missing echo (`EXIT:`, `EXIT:abc`, no such line at all)
+ * yields `null`: no evidence, not a guessed zero and not a guessed failure.
+ *
+ * Output alone is never evidence: a program can print `exit: 1` itself. The
+ * command must end with that echo of `$?`, and nothing before it may make
+ * `$?` another command's status -- a pipe (the last stage's), `||` (the
+ * fallback's), or another `;` or line (whatever ran last). `cd x && cmd` is
+ * fine: `$?` is then cmd's status, or cd's own failure.
+ */
+const EXIT_ECHO = /^exit\s*[:=]\s*(\d+)\s*$/i;
+const EXIT_WRAPPER = /^([\s\S]*?);\s*echo\s+(?:"exit\s*[:=]\s*\$\?"|exit\s*[:=]\s*\$\?)\s*$/i;
+
+function echoesOwnExitStatus(command: string): boolean {
+  const body = EXIT_WRAPPER.exec(command.trim())?.[1];
+  return body !== undefined && body.trim().length > 0 && !/[|;\r\n]/.test(body);
+}
+
+export function recoverExitStatusFromOutput(command: string, stdout: string | undefined): number | null {
+  if (!stdout || !echoesOwnExitStatus(command)) return null;
+  const lines = stdout.split(/\r?\n/).map((l) => l.trim());
+  let last = '';
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    if (lines[i]) {
+      last = lines[i]!;
+      break;
+    }
+  }
+  const match = EXIT_ECHO.exec(last);
+  return match ? Number(match[1]) : null;
+}
 
 /** Splits "Exit code 2\nls: cannot access ..." into its code and the rest. */
 function parseError(error: string): { exitCode: number | null; signature: string } {
@@ -136,12 +182,20 @@ export function parseHookPayloadDetailed(rawJson: string, now: string): ParseOut
     const command = str(p.tool_input?.command);
     if (!command) return { ok: false, reason: 'missing-fields', family };
     const error = failed ? parseError(str(p.error) ?? '') : null;
+    // Only checked on the hook's own success path: a failure already carries a
+    // real exit code from `error`, and second-guessing a genuine failure would
+    // be guessing in the more dangerous direction.
+    const recovered = failed ? null : recoverExitStatusFromOutput(command, str(p.tool_response?.stdout));
     const draft: RawAgentEvent = {
       ...base,
       kind: 'command',
       command,
+      // Recovered evidence of a non-zero exit overrides the hook's own "it
+      // succeeded" -- the outer shell call did, but the command inside it did
+      // not. No evidence (recovered === null) leaves the hook's word as-is.
+      outcome: recovered !== null && recovered !== 0 ? 'fail' : outcome,
       // A success carries no exit code because success is what it means; a failure hides it in text.
-      exitCode: failed ? error?.exitCode ?? null : 0,
+      exitCode: failed ? (error?.exitCode ?? null) : (recovered ?? 0),
       ...(error?.signature ? { errorSignature: error.signature } : {}),
     };
     return { ok: true, event: redactAgentEvent(draft), family };

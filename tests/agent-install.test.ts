@@ -392,6 +392,33 @@ describe('nexusmem agent (CLI)', () => {
       expect(text).toContain('reinstall from the environment Claude Code runs in');
     });
 
+    it('escapes terminal control characters a settings file puts in a hook path, instead of printing them', async () => {
+      // A cloned repository's project settings are untrusted: ESC and BEL sequences can retitle or clear the terminal.
+      const ESC = String.fromCharCode(27);
+      const BEL = String.fromCharCode(7);
+      const path = join(dir, '.claude', 'settings.local.json');
+      mkdirSync(dirname(path), { recursive: true });
+      writeFileSync(
+        path,
+        JSON.stringify({
+          hooks: {
+            PostToolUse: [
+              {
+                matcher: 'Bash',
+                hooks: [{ type: 'command', command: `"/nexusmem-elsewhere/${ESC}]0;pwned${BEL}${ESC}[2Jnode" "/nexusmem-elsewhere/dist/cli/agent-hook.js"` }],
+              },
+            ],
+          },
+        }),
+      );
+
+      const text = await status();
+      expect(text).toContain('2 path(s) in the installed hook do not exist here');
+      expect(text).not.toContain(ESC);
+      expect(text).not.toContain(BEL);
+      expect(text).toContain('/nexusmem-elsewhere/\\x1b]0;pwned\\x07\\x1b[2Jnode');
+    });
+
     it('says nothing about paths for an install whose paths are all here', async () => {
       await runAgentInstall({ cwd: dir, scope: 'project', out: () => {} });
 
@@ -536,6 +563,84 @@ describe('nexusmem agent recall (CLI)', () => {
     await runAgentRecall({ input: payload('psql postgres://app:two@db/app'), out: (c) => miss.push(c) });
     expect(miss.join('')).toBe('');
     expect(sha256Hex(withSecret)).not.toBe(sha256Hex('psql postgres://app:two@db/app'));
+  });
+
+  it('finds a bare historical command from a live command Claude Code wrapped in "cd <cwd> &&"', async () => {
+    // The exact shape the eval measured: 14 of 17 real Bash calls were
+    // prefixed this way, and the old raw-hash match could never find them.
+    await seedFailure('npm test');
+
+    const hit: string[] = [];
+    await runAgentRecall({ input: payload(`cd "${dir}" && npm test`), out: (c) => hit.push(c) });
+    expect(hit.join('')).toContain('failed in this repository before');
+  });
+
+  it('does not match when the cd target is a different directory', async () => {
+    await seedFailure('npm test');
+
+    const miss: string[] = [];
+    await runAgentRecall({ input: payload('cd /somewhere/else && npm test'), out: (c) => miss.push(c) });
+    expect(miss.join('')).toBe('');
+  });
+
+  it('recovers recall when the agent hid the exit code behind "; echo EXIT:$?"', async () => {
+    // The other real Phase-5.1 finding: this specific wrapper form is
+    // recoverable from tool_response.stdout, even though the hook itself
+    // reports success (PostToolUse, not PostToolUseFailure).
+    await seedFailure('npm test');
+
+    const hit: string[] = [];
+    await runAgentRecall({
+      input: JSON.stringify({
+        session_id: `sess-${session}`,
+        cwd: dir,
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'npm test; echo "EXIT:$?"' },
+        tool_response: { stdout: 'AssertionError: expected 1 to be 2\nEXIT:1', stderr: '', interrupted: false },
+        tool_use_id: 'toolu_exitrecovered',
+      }),
+      out: (c) => hit.push(c),
+    });
+    expect(hit.join('')).toContain('failed in this repository before');
+  });
+
+  it('does not recover recall when the wrapped command genuinely succeeded ("EXIT:0")', async () => {
+    await seedFailure('npm test');
+
+    const miss: string[] = [];
+    await runAgentRecall({
+      input: JSON.stringify({
+        session_id: `sess-${session}`,
+        cwd: dir,
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'npm test; echo "EXIT:$?"' },
+        tool_response: { stdout: 'ok\nEXIT:0', stderr: '', interrupted: false },
+        tool_use_id: 'toolu_exitzero',
+      }),
+      out: (c) => miss.push(c),
+    });
+    expect(miss.join('')).toBe('');
+  });
+
+  it('does not recover recall from output alone, when the command never echoed its status', async () => {
+    await seedFailure('npm test');
+
+    const miss: string[] = [];
+    await runAgentRecall({
+      input: JSON.stringify({
+        session_id: `sess-${session}`,
+        cwd: dir,
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Bash',
+        tool_input: { command: 'npm test' },
+        tool_response: { stdout: 'summary\nEXIT:1', stderr: '', interrupted: false },
+        tool_use_id: 'toolu_exitunwrapped',
+      }),
+      out: (c) => miss.push(c),
+    });
+    expect(miss.join('')).toBe('');
   });
 
   const sessionStartPayload = (over: Record<string, unknown> = {}) =>

@@ -24,6 +24,11 @@ import { redact } from '../src/conversation/redact.js';
 
 const HOOK = resolve('dist/cli/agent-hook.js');
 const SPAWNS = Number(process.argv[2] ?? 120);
+// NaN or 0 would run every loop zero times and fail later inside the report with a TypeError.
+if (!Number.isInteger(SPAWNS) || SPAWNS < 1) {
+  process.stderr.write(`spawnsPerPayload must be a positive integer, got ${JSON.stringify(process.argv[2])}\n`);
+  process.exit(2);
+}
 const MICRO_ITERATIONS = 5000;
 /** Enough samples that the tail statistics mean something. */
 const P99_MINIMUM = 100;

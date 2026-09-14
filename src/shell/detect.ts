@@ -32,11 +32,20 @@ export interface CollectShellHistoryOptions {
   preferHook?: boolean;
 }
 
+/**
+ * Slashes, trailing slash and case all folded away, so a Windows path and a
+ * POSIX one recorded for the same directory compare equal. Also used to
+ * recognise a `cd <cwd> && ` prefix as transport rather than a real change
+ * of directory (see `canonicalizeCommand` in `agent/event.ts`).
+ */
+export function normalizePathForCompare(p: string): string {
+  return p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+}
+
 /** Also used by the agent-event collector, which scopes by cwd the same way. */
 export function isUnderRoot(cwd: string, root: string): boolean {
-  const norm = (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  const c = norm(cwd);
-  const r = norm(root);
+  const c = normalizePathForCompare(cwd);
+  const r = normalizePathForCompare(root);
   return c === r || c.startsWith(`${r}/`);
 }
 

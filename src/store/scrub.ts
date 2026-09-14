@@ -1,4 +1,4 @@
-import { chmod, readdir, rm } from 'node:fs/promises';
+import { chmod, open, readdir, rm } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import Database from 'better-sqlite3';
 import { redact, type RedactProfile } from '../conversation/redact.js';
@@ -71,6 +71,8 @@ export interface ScrubOptions {
    * be tested; production always uses chmod.
    */
   protectBackup?: (path: string) => Promise<void>;
+  /** Removes an unprotectable backup. Injectable for the same reason; production uses rm. */
+  removeBackup?: (path: string) => Promise<void>;
 }
 
 export class ScrubRaceError extends Error {}
@@ -212,6 +214,10 @@ export async function scrubDatabase(dbPath: string, opts: ScrubOptions): Promise
     if (first.rows.length + first.reasons.length > 0) {
       const stamp = (opts.now ?? new Date()).toISOString().replace(/[:.]/g, '-');
       backupPath = `${dbPath}.backup-${stamp}-pre-scrub-secrets`;
+      // SQLite creates a new backup file 0644 under a usual umask, readable by others until the
+      // chmod below. An existing file keeps its mode, so create it owner-only first; `wx` also
+      // refuses to write the copy through anything already at that path.
+      await (await open(backupPath, 'wx', 0o600)).close();
       await db.backup(backupPath);
       // The backup holds every secret this run is about to remove. If it cannot be
       // restricted, stop before touching the database: leaving an unprotected copy
@@ -220,10 +226,18 @@ export async function scrubDatabase(dbPath: string, opts: ScrubOptions): Promise
       try {
         await (opts.protectBackup ?? ((path: string) => chmod(path, 0o600)))(backupPath);
       } catch (err) {
-        await rm(backupPath, { force: true }).catch(() => {});
-        throw new ScrubBackupError(
-          `could not restrict permissions on the backup (${(err as Error).message}) -- nothing was scrubbed`,
-        );
+        const protectMessage = (err as Error).message;
+        try {
+          await (opts.removeBackup ?? ((path: string) => rm(path, { force: true })))(backupPath);
+        } catch (cleanupErr) {
+          // The unprotected copy is still on disk: say exactly where, so it can be deleted by hand.
+          throw new ScrubBackupError(
+            `could not restrict permissions on the backup (${protectMessage}) nor remove it ` +
+              `(${(cleanupErr as Error).message}) -- nothing was scrubbed, but ${backupPath} still holds the ` +
+              'unredacted data; delete it',
+          );
+        }
+        throw new ScrubBackupError(`could not restrict permissions on the backup (${protectMessage}) -- nothing was scrubbed`);
       }
     }
 
@@ -263,8 +277,9 @@ export async function scrubDatabase(dbPath: string, opts: ScrubOptions): Promise
         // Re-embedding is best effort -- an unreachable Ollama is the normal case, and the
         // next sync picks it up. What must not be skipped is the purge below: the redaction
         // is already committed, and its pre-redaction text is still in the freelist and WAL
-        // until VACUUM and the checkpoint run.
-        pending = Math.max(dropped - reembedded, 0);
+        // until VACUUM and the checkpoint run. Pending is recounted, not derived: earlier
+        // projects' backlog and any vectors the attempt invalidated are only known to the database.
+        pending = projects.reduce((sum, { p }) => sum + store.countNodesNeedingEmbedding(p), 0);
       }
     }
 

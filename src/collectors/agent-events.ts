@@ -84,6 +84,8 @@ export function toAgentMemoryNode(
       // These keys match the shell collector's, so failure-fix and precheck read agent nodes unchanged.
       command,
       commandHash: event.commandHash,
+      // Agent-only: the shell collector has no `cd`-prefix habit to normalize.
+      execHash: event.execHash,
       cwd: event.cwd,
       exitCode: event.exitCode,
       durationMs: event.durationMs,

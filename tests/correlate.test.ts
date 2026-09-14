@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { correlateFailures, getChainStats, RESOLVED_BY_DISCUSSION, RESOLVED_BY_RETRY } from '../src/correlate/failure-fix.js';
 import type { MemoryNode } from '../src/core/types.js';
+import { toHookLogLine } from '../src/shell/recorder.js';
 import { MemoryStore } from '../src/store/store.js';
 
 /**
@@ -18,7 +19,10 @@ const PROJECT = 'proj-a';
 const T0 = Date.parse('2026-01-01T00:00:00Z');
 const HOUR = 60 * 60 * 1000;
 
-function shellNode(id: string, opts: { ts: number; command: string; exitCode: number; cwd?: string }): MemoryNode {
+function shellNode(
+  id: string,
+  opts: { ts: number; command: string; exitCode: number; cwd?: string; commandHash?: string },
+): MemoryNode {
   return {
     id,
     kind: 'shell_command',
@@ -29,8 +33,23 @@ function shellNode(id: string, opts: { ts: number; command: string; exitCode: nu
     body: `$ ${opts.command}`,
     files: [],
     signal: 0.3,
-    meta: { command: opts.command, cwd: opts.cwd ?? '/repo', exitCode: opts.exitCode, durationMs: 100, tsApprox: false },
+    meta: {
+      command: opts.command,
+      cwd: opts.cwd ?? '/repo',
+      exitCode: opts.exitCode,
+      durationMs: 100,
+      tsApprox: false,
+      ...(opts.commandHash ? { commandHash: opts.commandHash } : {}),
+    },
   };
+}
+
+/** A node as the real recorder stores a raw command: redacted text, hash of the raw command. */
+function recordedShellNode(id: string, opts: { ts: number; raw: string; exitCode: number }): MemoryNode {
+  const line = JSON.parse(
+    toHookLogLine(JSON.stringify({ ts: new Date(opts.ts).toISOString(), cwd: '/repo', command: opts.raw }), 'pwsh-hook')!,
+  ) as { command: string; commandHash: string };
+  return shellNode(id, { ts: opts.ts, command: line.command, exitCode: opts.exitCode, commandHash: line.commandHash });
 }
 
 function conversationNode(id: string, opts: { ts: number; body: string }): MemoryNode {
@@ -72,6 +91,49 @@ describe('correlateFailures', () => {
 
     expect(stats).toEqual({ failuresExamined: 1, linkedByRetry: 1, linkedByDiscussion: 0, unexplainedRetries: 0 });
     expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual(['retry']);
+  });
+
+  describe('when redaction makes different commands read the same', () => {
+    it('does not link a pass whose raw command differed, even though the stored text is identical', () => {
+      const fail = recordedShellNode('fail', { ts: T0, raw: 'TOKEN=synthetic-aaaa1111 npm test', exitCode: 1 });
+      const pass = recordedShellNode('retry', { ts: T0 + HOUR, raw: 'TOKEN=synthetic-bbbb2222 npm test', exitCode: 0 });
+      expect(fail.meta.command).toBe(pass.meta.command);
+      store.upsertNodes([fail, pass]);
+
+      expect(correlateFailures(store, PROJECT)).toMatchObject({ linkedByRetry: 0 });
+      expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual([]);
+    });
+
+    it('still links a real retry of the same raw command', () => {
+      store.upsertNodes([
+        recordedShellNode('fail', { ts: T0, raw: 'TOKEN=synthetic-aaaa1111 npm test', exitCode: 1 }),
+        recordedShellNode('retry', { ts: T0 + HOUR, raw: 'TOKEN=synthetic-aaaa1111 npm test', exitCode: 0 }),
+      ]);
+
+      expect(correlateFailures(store, PROJECT)).toMatchObject({ linkedByRetry: 1 });
+      expect(store.getLinkedNodeIds('fail', RESOLVED_BY_RETRY)).toEqual(['retry']);
+    });
+
+    it('does not link a redacted legacy row that has no raw-command hash to compare', () => {
+      const pass = recordedShellNode('retry', { ts: T0 + HOUR, raw: 'TOKEN=synthetic-aaaa1111 npm test', exitCode: 0 });
+      store.upsertNodes([
+        shellNode('fail', { ts: T0, command: String(pass.meta.command), exitCode: 1 }),
+        pass,
+        shellNode('fail-2', { ts: T0 + 2 * HOUR, command: 'TOKEN: [redacted] npm run build', exitCode: 1 }),
+        shellNode('retry-2', { ts: T0 + 3 * HOUR, command: 'TOKEN: [redacted] npm run build', exitCode: 0 }),
+      ]);
+
+      expect(correlateFailures(store, PROJECT)).toMatchObject({ failuresExamined: 2, linkedByRetry: 0 });
+    });
+
+    it('keeps linking legacy rows without hashes when nothing in the command was redacted', () => {
+      store.upsertNodes([
+        shellNode('fail', { ts: T0, command: 'npm test', exitCode: 1 }),
+        shellNode('retry', { ts: T0 + HOUR, command: 'npm test', exitCode: 0, commandHash: 'aaaaaaaaaaaa' }),
+      ]);
+
+      expect(correlateFailures(store, PROJECT)).toMatchObject({ linkedByRetry: 1 });
+    });
   });
 
   it('does not link a retry outside the configured retry window', () => {

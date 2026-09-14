@@ -175,11 +175,20 @@ describe('agent-hook process: success, failure and crash boundaries', () => {
     expect(filesContaining(home)).toEqual([]);
   });
 
-  it('drops an oversized payload without writing', async () => {
+  it('drops an oversized payload without writing it, and records the drop', async () => {
+    const before = readCaptureStatus().drops;
     const r = await run(payload({ error: `Exit code 1\n${'x'.repeat(1_100_000)}` }));
     expect(r.code).toBe(1);
     expect(r.stdout + r.stderr).toBe('');
     expect(existsSync(logPath)).toBe(false);
+
+    // Never parsed, so nothing is known about which hook sent it.
+    const after = readCaptureStatus();
+    expect(after).toMatchObject({ health: 'degraded', lastDropReason: 'payload-too-large', lastDropFamily: 'other' });
+    expect(after.drops).toBe(before + 1);
+    const marker = readFileSync(captureDropStatePath(), 'utf8');
+    expect(marker).not.toContain(SECRET);
+    expect(marker.length).toBeLessThan(300);
   });
 
   it('crash boundary: killed while holding the raw payload, before persisting, leaves no trace', async () => {
