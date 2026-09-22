@@ -331,4 +331,88 @@ describe('reconcileProjectId', () => {
     expect(store.stats(NEW).total).toBe(3);
     expect(store.stats(OLD).total).toBe(0);
   });
+  describe('node_links', () => {
+    const ts = '2026-03-01T10:00:00.000Z';
+    const hookShell = (projectId: string, command: string, at = ts) => {
+      const naturalKey = `pwsh-hook:${at}:${sha256Hex(command).slice(0, 12)}`;
+      return node({
+        id: makeNodeId(projectId, 'shell_command', naturalKey),
+        kind: 'shell_command',
+        projectId,
+        ts: at,
+        source: 'shell:pwsh-hook',
+        meta: { command },
+      });
+    };
+    const session = (projectId: string, sessionKey: string) =>
+      node({
+        id: makeNodeId(projectId, 'session_summary', sessionKey),
+        kind: 'session_summary',
+        projectId,
+        source: 'session:claude-code',
+        meta: { sessionKey },
+      });
+    const linkRows = () =>
+      store.raw.prepare('SELECT from_node_id, to_node_id, relation FROM node_links ORDER BY relation').all();
+
+    it('carries a link between two migrated nodes over to their new ids, across recompute passes', () => {
+      const failure = hookShell(OLD, 'npm test');
+      const retry = hookShell(OLD, 'npm test', '2026-03-01T10:05:00.000Z');
+      const discussion = session(OLD, 'claude-code:abc');
+      store.upsertNodes([failure, retry, discussion]);
+      store.linkNodes(failure.id, retry.id, 'resolved_by:retry');
+      store.linkNodes(failure.id, discussion.id, 'resolved_by:discussion');
+
+      reconcileProjectId(store.raw, OLD, NEW);
+
+      expect(linkRows()).toEqual([
+        { from_node_id: hookShell(NEW, 'npm test').id, to_node_id: session(NEW, 'claude-code:abc').id, relation: 'resolved_by:discussion' },
+        {
+          from_node_id: hookShell(NEW, 'npm test').id,
+          to_node_id: hookShell(NEW, 'npm test', '2026-03-01T10:05:00.000Z').id,
+          relation: 'resolved_by:retry',
+        },
+      ]);
+    });
+
+    it('points a link at the equivalent node when the endpoint was deduped rather than migrated', () => {
+      const failure = hookShell(OLD, 'npm test');
+      const discussion = session(OLD, 'claude-code:abc');
+      store.upsertNodes([failure, discussion, session(NEW, 'claude-code:abc')]);
+      store.linkNodes(failure.id, discussion.id, 'resolved_by:discussion');
+
+      reconcileProjectId(store.raw, OLD, NEW);
+
+      expect(linkRows()).toEqual([
+        { from_node_id: hookShell(NEW, 'npm test').id, to_node_id: session(NEW, 'claude-code:abc').id, relation: 'resolved_by:discussion' },
+      ]);
+    });
+
+    it('keeps a link from a migrated node to a conversation_turn reassigned in place', () => {
+      const failure = hookShell(OLD, 'npm test');
+      const turn = node({ id: 'turn-1', kind: 'conversation_turn', projectId: OLD, source: 'conversation:claude-code' });
+      store.upsertNodes([failure, turn]);
+      store.linkNodes(failure.id, turn.id, 'resolved_by:discussion');
+
+      reconcileProjectId(store.raw, OLD, NEW);
+
+      expect(linkRows()).toEqual([
+        { from_node_id: hookShell(NEW, 'npm test').id, to_node_id: 'turn-1', relation: 'resolved_by:discussion' },
+      ]);
+    });
+
+    it('does not resurrect a link whose other end was left behind or denied', () => {
+      const failure = hookShell(OLD, 'npm test');
+      const scraped = node({ id: 'scraped-1', kind: 'shell_command', projectId: OLD, source: 'shell:pwsh' });
+      const denied = session(OLD, 'claude-code:secret');
+      store.upsertNodes([failure, scraped, { ...denied, body: 'contains hunter2' }]);
+      insertDenyListEntry(store.raw, { projectId: NEW, matchType: 'literal', pattern: 'hunter2', ignoreCase: false, reason: null });
+      store.linkNodes(failure.id, scraped.id, 'resolved_by:retry');
+      store.linkNodes(failure.id, denied.id, 'resolved_by:discussion');
+
+      reconcileProjectId(store.raw, OLD, NEW);
+
+      expect(linkRows()).toEqual([]);
+    });
+  });
 });

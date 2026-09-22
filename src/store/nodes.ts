@@ -190,12 +190,7 @@ export function clearProject(db: Database, projectId: string): number {
  * Hydrate full content for a set of node ids, e.g. to pack a linked
  * resolution alongside the failure node that points at it. Order is not
  * guaranteed to match `ids`; ids with no matching row are silently omitted
- * rather than erroring. `node_links` has `ON DELETE CASCADE` on both
- * columns, so an individual node delete (e.g. `reconcile.ts` migrating a
- * node to a freshly-computed id) removes any link pointing at the old id
- * along with it -- correct as a safety default, though note that reconcile
- * does not currently re-create the link under the migrated node's new id;
- * that gap is not addressed here.
+ * rather than erroring.
  */
 export function getNodesByIds(db: Database, ids: readonly string[]): LinkedNode[] {
   if (ids.length === 0) return [];

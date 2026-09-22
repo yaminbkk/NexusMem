@@ -49,6 +49,7 @@ function recomputeByNaturalKey(
   source: string | null,
   computeNaturalKey: (row: StoredNodeRow, meta: Record<string, unknown>) => string | null,
   denyEntries: readonly DenyListEntry[],
+  movedIds: Map<string, string>,
 ): { migrated: number; deduped: number; skipped: number; denied: number } {
   const rows = (
     source
@@ -97,6 +98,7 @@ function recomputeByNaturalKey(
     }
 
     const newId = makeNodeId(newProjectId, kind, naturalKey);
+    movedIds.set(row.id, newId);
 
     if (nodeExists.get(newId)) {
       deduped += 1;
@@ -134,6 +136,48 @@ function recomputeByNaturalKey(
   }
 
   return { migrated, deduped, skipped, denied };
+}
+
+interface StoredLinkRow {
+  from_node_id: string;
+  to_node_id: string;
+  relation: string;
+  created_at: number;
+}
+
+/**
+ * Every link touching a node under `projectId`, read before any node is
+ * deleted: `node_links` cascades on delete, so once a pass drops an old row
+ * its links are gone, including links to a node a later pass migrates.
+ */
+function snapshotLinks(db: DB, projectId: string): StoredLinkRow[] {
+  return db
+    .prepare(
+      `SELECT from_node_id, to_node_id, relation, created_at FROM node_links
+       WHERE from_node_id IN (SELECT id FROM nodes WHERE project_id = @projectId)
+          OR to_node_id IN (SELECT id FROM nodes WHERE project_id = @projectId)`,
+    )
+    .all({ projectId }) as StoredLinkRow[];
+}
+
+/**
+ * Re-create each snapshotted link between the nodes its endpoints now live
+ * at. A link survives only when both ends ended up under the new project id:
+ * one whose other end was denied, or left behind under the old id, stays
+ * dropped rather than bridging two project identities.
+ */
+function restoreLinks(db: DB, links: readonly StoredLinkRow[], movedIds: ReadonlyMap<string, string>, newProjectId: string): void {
+  const inNewProject = db.prepare('SELECT 1 FROM nodes WHERE id = ? AND project_id = ?');
+  const insertLink = db.prepare(
+    'INSERT OR IGNORE INTO node_links (from_node_id, to_node_id, relation, created_at) VALUES (?, ?, ?, ?)',
+  );
+  for (const link of links) {
+    const from = movedIds.get(link.from_node_id) ?? link.from_node_id;
+    const to = movedIds.get(link.to_node_id) ?? link.to_node_id;
+    if (inNewProject.get(from, newProjectId) && inNewProject.get(to, newProjectId)) {
+      insertLink.run(from, to, link.relation, link.created_at);
+    }
+  }
 }
 
 /**
@@ -182,6 +226,10 @@ export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: s
     // Scoped to newProjectId (the destination): a row denied here must never
     // land under the id reconcile is migrating things *into*.
     const denyEntries = listDenyListEntries(db, newProjectId);
+    const links = snapshotLinks(db, oldProjectId);
+    // Old id -> the id its content lives at under newProjectId, whether
+    // migrated or deduped against an equivalent row already there.
+    const movedIds = new Map<string, string>();
 
     const sessions = recomputeByNaturalKey(
       db,
@@ -191,6 +239,7 @@ export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: s
       null,
       (_row, meta) => (typeof meta.sessionKey === 'string' ? meta.sessionKey : null),
       denyEntries,
+      movedIds,
     );
 
     // One entry per live shell hook -- each writes its own `shell:<kind>-hook`
@@ -222,6 +271,7 @@ export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: s
           return hash ? `${prefix}:${row.ts}:${hash}` : null;
         },
         denyEntries,
+        movedIds,
       );
       hookShell.migrated += r.migrated;
       hookShell.deduped += r.deduped;
@@ -262,6 +312,8 @@ export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: s
     const reassigned = db
       .prepare(`UPDATE nodes SET project_id = ? WHERE project_id = ? AND kind = 'conversation_turn'`)
       .run(newProjectId, oldProjectId).changes;
+
+    restoreLinks(db, links, movedIds, newProjectId);
 
     return {
       oldProjectId,
