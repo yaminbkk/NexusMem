@@ -22,7 +22,7 @@ import { collectAvailableShellHistory } from '../../shell/detect.js';
 import { sanitizeHookLog } from '../../shell/hook-log.js';
 import { hookLogPath } from '../../shell/paths.js';
 import { OllamaChatProvider, type SummarizationProvider } from '../../slm/provider.js';
-import { reconcileProjectId } from '../../store/reconcile.js';
+import { reconcileProjectIds } from '../../store/reconcile.js';
 import { MemoryStore, type IngestStats } from '../../store/store.js';
 import { collectFileEdges } from '../../structure/collect.js';
 import { OllamaEmbeddingProvider, type EmbeddingProvider } from '../../vector/embed.js';
@@ -747,8 +747,9 @@ export async function runSync(opts: SyncOptions): Promise<number> {
     // repo's prior identity -- almost always its git remote URL changed
     // since the last sync (see reconcile.ts for the full story).
     const staleProjectIds = store.listOtherProjectIds(projectId);
-    for (const staleId of staleProjectIds) {
-      const result = reconcileProjectId(store.raw, staleId, projectId);
+    // One call for the whole set: a failure->fix link can span two stale
+    // identities, and only a single pass can resolve both of its ends.
+    for (const result of reconcileProjectIds(store.raw, staleProjectIds, projectId)) {
       const parts = [
         result.migrated > 0 ? `${result.migrated} migrated` : null,
         result.reassigned > 0 ? `${result.reassigned} reassigned` : null,
@@ -758,7 +759,7 @@ export async function runSync(opts: SyncOptions): Promise<number> {
       ].filter((part): part is string => part !== null);
       if (parts.length > 0) {
         log(
-          `${pc.yellow('reconciled')} previous project identity ${pc.dim(staleId)} (remote URL likely changed): ${parts.join(', ')}`,
+          `${pc.yellow('reconciled')} previous project identity ${pc.dim(result.oldProjectId)} (remote URL likely changed): ${parts.join(', ')}`,
         );
       }
     }

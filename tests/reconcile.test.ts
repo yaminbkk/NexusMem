@@ -6,7 +6,7 @@ import { makeNodeId, sha256Hex } from '../src/core/ids.js';
 import type { MemoryNode } from '../src/core/types.js';
 import { EMBEDDING_DIM } from '../src/store/schema.js';
 import { insertDenyListEntry } from '../src/store/deny-list.js';
-import { reconcileProjectId } from '../src/store/reconcile.js';
+import { reconcileProjectId, reconcileProjectIds } from '../src/store/reconcile.js';
 import { MemoryStore } from '../src/store/store.js';
 
 const OLD = 'old-project';
@@ -398,6 +398,25 @@ describe('reconcileProjectId', () => {
 
       expect(linkRows()).toEqual([
         { from_node_id: hookShell(NEW, 'npm test').id, to_node_id: 'turn-1', relation: 'resolved_by:discussion' },
+      ]);
+    });
+
+    it('keeps a link that spans two stale identities reconciled in one pass', () => {
+      const OTHER = 'other-old-project';
+      const failure = hookShell(OLD, 'npm test');
+      const discussion = session(OTHER, 'claude-code:abc');
+      store.upsertNodes([failure, discussion]);
+      store.linkNodes(failure.id, discussion.id, 'resolved_by:discussion');
+
+      const results = reconcileProjectIds(store.raw, [OLD, OTHER], NEW);
+
+      expect(results.map((r) => r.oldProjectId)).toEqual([OLD, OTHER]);
+      expect(linkRows()).toEqual([
+        {
+          from_node_id: hookShell(NEW, 'npm test').id,
+          to_node_id: session(NEW, 'claude-code:abc').id,
+          relation: 'resolved_by:discussion',
+        },
       ]);
     });
 

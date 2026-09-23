@@ -146,18 +146,20 @@ interface StoredLinkRow {
 }
 
 /**
- * Every link touching a node under `projectId`, read before any node is
- * deleted: `node_links` cascades on delete, so once a pass drops an old row
- * its links are gone, including links to a node a later pass migrates.
+ * Every link touching a node under any of `projectIds`, read before any node
+ * is deleted: `node_links` cascades on delete, so once a pass drops an old
+ * row its links are gone, including links to a node a later pass migrates --
+ * a pass over another stale identity included, which is why the whole set is
+ * snapshotted at once rather than one identity at a time.
  */
-function snapshotLinks(db: DB, projectId: string): StoredLinkRow[] {
+function snapshotLinks(db: DB, projectIds: readonly string[]): StoredLinkRow[] {
+  const scope = 'SELECT id FROM nodes WHERE project_id IN (SELECT value FROM json_each(?))';
   return db
     .prepare(
       `SELECT from_node_id, to_node_id, relation, created_at FROM node_links
-       WHERE from_node_id IN (SELECT id FROM nodes WHERE project_id = @projectId)
-          OR to_node_id IN (SELECT id FROM nodes WHERE project_id = @projectId)`,
+       WHERE from_node_id IN (${scope}) OR to_node_id IN (${scope})`,
     )
-    .all({ projectId }) as StoredLinkRow[];
+    .all(JSON.stringify(projectIds), JSON.stringify(projectIds)) as StoredLinkRow[];
 }
 
 /**
@@ -221,107 +223,133 @@ function restoreLinks(db: DB, links: readonly StoredLinkRow[], movedIds: Readonl
  *   in the maintainer's notes -- so leaving it under the now-inert old id is
  *   no different in effect from pruning it.
  */
-export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: string): ProjectIdReconcileResult {
-  return db.transaction((): ProjectIdReconcileResult => {
-    // Scoped to newProjectId (the destination): a row denied here must never
-    // land under the id reconcile is migrating things *into*.
-    const denyEntries = listDenyListEntries(db, newProjectId);
-    const links = snapshotLinks(db, oldProjectId);
-    // Old id -> the id its content lives at under newProjectId, whether
-    // migrated or deduped against an equivalent row already there.
-    const movedIds = new Map<string, string>();
+function reconcileOne(db: DB, oldProjectId: string, newProjectId: string, movedIds: Map<string, string>): ProjectIdReconcileResult {
+  // Scoped to newProjectId (the destination): a row denied here must never
+  // land under the id reconcile is migrating things *into*.
+  const denyEntries = listDenyListEntries(db, newProjectId);
 
-    const sessions = recomputeByNaturalKey(
+  const sessions = recomputeByNaturalKey(
+    db,
+    oldProjectId,
+    newProjectId,
+    'session_summary',
+    null,
+    (_row, meta) => (typeof meta.sessionKey === 'string' ? meta.sessionKey : null),
+    denyEntries,
+    movedIds,
+  );
+
+  // One entry per live shell hook -- each writes its own `shell:<kind>-hook`
+  // source and naturalKey prefix (see src/shell/detect.ts's hookEntryToRaw),
+  // so each needs its own recompute pass rather than one hardcoded to
+  // PowerShell's alone.
+  const HOOK_SHELL_SOURCES = [
+    { source: 'shell:pwsh-hook', prefix: 'pwsh-hook' },
+    { source: 'shell:bash-hook', prefix: 'bash-hook' },
+    { source: 'shell:zsh-hook', prefix: 'zsh-hook' },
+  ] as const;
+
+  const hookShell = { migrated: 0, deduped: 0, skipped: 0, denied: 0 };
+  for (const { source, prefix } of HOOK_SHELL_SOURCES) {
+    const r = recomputeByNaturalKey(
       db,
       oldProjectId,
       newProjectId,
-      'session_summary',
-      null,
-      (_row, meta) => (typeof meta.sessionKey === 'string' ? meta.sessionKey : null),
+      'shell_command',
+      source,
+      (row, meta) => {
+        // Rows written before meta.command was redacted have no commandHash but still hold the raw command.
+        const hash =
+          typeof meta.commandHash === 'string'
+            ? meta.commandHash
+            : typeof meta.command === 'string'
+              ? sha256Hex(meta.command).slice(0, 12)
+              : null;
+        return hash ? `${prefix}:${row.ts}:${hash}` : null;
+      },
       denyEntries,
       movedIds,
     );
+    hookShell.migrated += r.migrated;
+    hookShell.deduped += r.deduped;
+    hookShell.skipped += r.skipped;
+    hookShell.denied += r.denied;
+  }
 
-    // One entry per live shell hook -- each writes its own `shell:<kind>-hook`
-    // source and naturalKey prefix (see src/shell/detect.ts's hookEntryToRaw),
-    // so each needs its own recompute pass rather than one hardcoded to
-    // PowerShell's alone.
-    const HOOK_SHELL_SOURCES = [
-      { source: 'shell:pwsh-hook', prefix: 'pwsh-hook' },
-      { source: 'shell:bash-hook', prefix: 'bash-hook' },
-      { source: 'shell:zsh-hook', prefix: 'zsh-hook' },
-    ] as const;
+  // conversation_turn rows are reassigned in place by the UPDATE below,
+  // not re-inserted through recomputeByNaturalKey -- a denied row would
+  // otherwise sail through that UPDATE untouched. Delete matches first,
+  // so the UPDATE simply finds nothing left to reassign for them.
+  let deniedConversationTurns = 0;
+  if (denyEntries.length > 0) {
+    const conversationTurns = db
+      .prepare(`SELECT id, title, body, meta FROM nodes WHERE project_id = ? AND kind = 'conversation_turn'`)
+      .all(oldProjectId) as Array<{ id: string; title: string; body: string; meta: string }>;
 
-    const hookShell = { migrated: 0, deduped: 0, skipped: 0, denied: 0 };
-    for (const { source, prefix } of HOOK_SHELL_SOURCES) {
-      const r = recomputeByNaturalKey(
-        db,
-        oldProjectId,
-        newProjectId,
-        'shell_command',
-        source,
-        (row, meta) => {
-          // Rows written before meta.command was redacted have no commandHash but still hold the raw command.
-          const hash =
-            typeof meta.commandHash === 'string'
-              ? meta.commandHash
-              : typeof meta.command === 'string'
-                ? sha256Hex(meta.command).slice(0, 12)
-                : null;
-          return hash ? `${prefix}:${row.ts}:${hash}` : null;
-        },
-        denyEntries,
-        movedIds,
-      );
-      hookShell.migrated += r.migrated;
-      hookShell.deduped += r.deduped;
-      hookShell.skipped += r.skipped;
-      hookShell.denied += r.denied;
-    }
+    if (conversationTurns.length > 0) {
+      const dropEmbedding = db.prepare('DELETE FROM nodes_vec WHERE rowid = (SELECT rowid FROM nodes WHERE id = ?)');
+      const deleteNode = db.prepare('DELETE FROM nodes WHERE id = ?');
 
-    // conversation_turn rows are reassigned in place by the UPDATE below,
-    // not re-inserted through recomputeByNaturalKey -- a denied row would
-    // otherwise sail through that UPDATE untouched. Delete matches first,
-    // so the UPDATE simply finds nothing left to reassign for them.
-    let deniedConversationTurns = 0;
-    if (denyEntries.length > 0) {
-      const conversationTurns = db
-        .prepare(`SELECT id, title, body, meta FROM nodes WHERE project_id = ? AND kind = 'conversation_turn'`)
-        .all(oldProjectId) as Array<{ id: string; title: string; body: string; meta: string }>;
-
-      if (conversationTurns.length > 0) {
-        const dropEmbedding = db.prepare('DELETE FROM nodes_vec WHERE rowid = (SELECT rowid FROM nodes WHERE id = ?)');
-        const deleteNode = db.prepare('DELETE FROM nodes WHERE id = ?');
-
-        for (const row of conversationTurns) {
-          let meta: unknown;
-          try {
-            meta = JSON.parse(row.meta);
-          } catch {
-            meta = {};
-          }
-          if (firstMatchingEntry(denyEntries, { title: row.title, body: row.body, meta })) {
-            dropEmbedding.run(row.id);
-            deleteNode.run(row.id);
-            deniedConversationTurns += 1;
-          }
+      for (const row of conversationTurns) {
+        let meta: unknown;
+        try {
+          meta = JSON.parse(row.meta);
+        } catch {
+          meta = {};
+        }
+        if (firstMatchingEntry(denyEntries, { title: row.title, body: row.body, meta })) {
+          dropEmbedding.run(row.id);
+          deleteNode.run(row.id);
+          deniedConversationTurns += 1;
         }
       }
     }
+  }
 
-    const reassigned = db
-      .prepare(`UPDATE nodes SET project_id = ? WHERE project_id = ? AND kind = 'conversation_turn'`)
-      .run(newProjectId, oldProjectId).changes;
+  const reassigned = db
+    .prepare(`UPDATE nodes SET project_id = ? WHERE project_id = ? AND kind = 'conversation_turn'`)
+    .run(newProjectId, oldProjectId).changes;
+
+  return {
+    oldProjectId,
+    migrated: sessions.migrated + hookShell.migrated,
+    reassigned,
+    deduped: sessions.deduped + hookShell.deduped,
+    skipped: sessions.skipped + hookShell.skipped,
+    denied: sessions.denied + hookShell.denied + deniedConversationTurns,
+  };
+}
+
+/** Reconcile a single stale project id. See {@link reconcileProjectIds}. */
+export function reconcileProjectId(db: DB, oldProjectId: string, newProjectId: string): ProjectIdReconcileResult {
+  return reconcileProjectIds(db, [oldProjectId], newProjectId)[0]!;
+}
+
+/**
+ * Reconcile every stale project id in one transaction, in the order given.
+ *
+ * All of them together rather than one call each: a link can span two stale
+ * identities (a repo whose remote URL changed twice), and the first
+ * identity's pass deletes rows the second one's link still points at. One
+ * snapshot up front, one `movedIds` map across every pass and one restore at
+ * the end, so where a link's endpoints land never depends on which identity
+ * was reconciled first.
+ */
+export function reconcileProjectIds(
+  db: DB,
+  oldProjectIds: readonly string[],
+  newProjectId: string,
+): ProjectIdReconcileResult[] {
+  return db.transaction((): ProjectIdReconcileResult[] => {
+    const links = snapshotLinks(db, oldProjectIds);
+    // Old id -> the id its content lives at under newProjectId, whether
+    // migrated or deduped against an equivalent row already there. Shared
+    // across identities so a link between two of them resolves both ends.
+    const movedIds = new Map<string, string>();
+
+    const results = oldProjectIds.map((oldProjectId) => reconcileOne(db, oldProjectId, newProjectId, movedIds));
 
     restoreLinks(db, links, movedIds, newProjectId);
-
-    return {
-      oldProjectId,
-      migrated: sessions.migrated + hookShell.migrated,
-      reassigned,
-      deduped: sessions.deduped + hookShell.deduped,
-      skipped: sessions.skipped + hookShell.skipped,
-      denied: sessions.denied + hookShell.denied + deniedConversationTurns,
-    };
+    return results;
   })();
 }
