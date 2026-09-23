@@ -41,6 +41,11 @@ ROADMAP.local.md
 # tracked (it's the ground truth, not a run result).
 /eval/results/
 
+# Scratch area for learning exercises against this codebase -- throwaway code
+# written while reading it, not part of the project. Untracked also keeps it
+# out of NexusMem's own corpus, same as the planning notes above.
+/study/
+
 # Editor / OS cruft. Anchored to the repo root: vscode-extension/.vscode/
 # holds real, committed debug config (launch.json) for developing the
 # extension itself, not personal editor settings.
