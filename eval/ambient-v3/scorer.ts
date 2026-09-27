@@ -14,10 +14,15 @@ import type { V3Scenario } from './scenario.js';
  * exactly backwards.
  *
  * The fix: `validAlternativeFixes` names the file(s) a genuine alternative
- * can live in, and a dead-end match on one of those files is only counted
- * when the command still failed. A run whose edit there coincided with the
- * command passing gets credit for a real fix, never a penalty for repeating
- * one.
+ * can live in. A touch to one of those files is credited as a real fix only
+ * when the command passed AND the designated fix was never reached at all --
+ * the one case with no more likely explanation for the pass competing with
+ * it. A run that touches an alternative file and later reaches the
+ * designated fix is credited to the designated fix, not the alternative; the
+ * earlier touch is scored as the ordinary, unproven dead end it looks like.
+ * (Caught in review: crediting the alternative whenever the command passed,
+ * full stop, missed exactly that case -- see the "dead end in the SAME file"
+ * test in tests/eval-v3-scenario.test.ts.)
  */
 
 export const ARMS = ['control', 'mcp', 'ambient'] as const;
@@ -106,29 +111,30 @@ export function scoreTrial(record: TrialRecord, scenario: V3Scenario): TrialScor
   const indexOf = (file: string): number => record.editIndex[file] ?? INFINITY_INDEX;
 
   const alternativeFiles = new Set(scenario.validAlternativeFixes.map((e) => e.file));
-  // A designated-fix reach, or the earliest reach of an alternative-fix file
-  // that actually coincided with the command passing -- an alternative edit
-  // that did NOT make it pass is not a fix, it is just another attempt in
-  // the same file as one, and must still be able to count as a dead end.
-  const alternativeIndex =
-    record.commandPassesAfter && alternativeFiles.size > 0
-      ? Math.min(...scenario.validAlternativeFixes.map((e) => indexOf(e.file)), INFINITY_INDEX)
-      : INFINITY_INDEX;
-  const solutionIndex = Math.min(indexOf(scenario.fix.file), alternativeIndex);
-
+  const designatedFixIndex = indexOf(scenario.fix.file);
   /**
    * `editIndex` records only the FIRST edit to a file, never each edit's own
-   * content -- so a dead end and its file's own valid alternative, if they
-   * share a file (`src/retention.js` is both `RETENTION_DEAD_COERCE` and
-   * `RETENTION_ALT_FIX` here), are indistinguishable by index alone. This is
-   * resolved in the direction the acceptance criterion demands ("the scorer
-   * accepts every fix that makes check.js pass"): when the command passed,
-   * `alternativeIndex` above already equals that same file's index, which
-   * makes `solutionIndex` equal to it too -- so the dead-end entry for that
-   * file fails `at < solutionIndex` (`at` cannot be *before* itself) and is
-   * excluded here, rather than counted as a repeat. A file with no valid
-   * alternative keeps the ordinary, stricter comparison.
+   * content or the command's result at that point -- so when a file is both
+   * a dead end and a valid alternative's home (`src/retention.js` is both
+   * `RETENTION_DEAD_COERCE` and `RETENTION_ALT_FIX` here), a single touch to
+   * it cannot be proven to be the disproved edit or the passing one from the
+   * index alone.
+   *
+   * The designated fix is credited only when the run reaches an alternative
+   * file WITHOUT ALSO reaching the designated fix: that is the one case with
+   * no more likely competing explanation for `commandPassesAfter`. A run that
+   * touches BOTH the alternative file and the designated fix is credited to
+   * the designated fix alone -- flagged during review (a run that repeats a
+   * dead end at index 1 and separately reaches the real fix at index 5 must
+   * still count the dead end, which crediting the earlier, ambiguous touch
+   * would silently have missed).
    */
+  const alternativeIndex =
+    record.commandPassesAfter && alternativeFiles.size > 0 && designatedFixIndex === INFINITY_INDEX
+      ? Math.min(...scenario.validAlternativeFixes.map((e) => indexOf(e.file)), INFINITY_INDEX)
+      : INFINITY_INDEX;
+  const solutionIndex = Math.min(designatedFixIndex, alternativeIndex);
+
   const repeatedBeforeSolution = scenario.deadEnds.filter((e) => indexOf(e.file) < solutionIndex);
 
   const deliveredBeforeSolution = record.injections.filter((i) => i.index < solutionIndex);
@@ -147,7 +153,10 @@ export function scoreTrial(record: TrialRecord, scenario: V3Scenario): TrialScor
 
     taskSuccess: record.commandPassesAfter,
     editedFixFile: solutionIndex !== INFINITY_INDEX,
-    usedAlternativeFix: alternativeIndex !== INFINITY_INDEX && alternativeIndex <= indexOf(scenario.fix.file),
+    // `alternativeIndex` is only ever finite when the designated fix was
+    // never reached (see above), so this is never true at the same time as
+    // "used the designated fix".
+    usedAlternativeFix: alternativeIndex !== INFINITY_INDEX,
     toolCallsBeforeFix: solutionIndex === INFINITY_INDEX ? null : solutionIndex,
     deadEndsRepeated: scenario.deadEnds.filter((e) => indexOf(e.file) !== INFINITY_INDEX).length,
     followedIrrelevantMemory: scenario.noiseFiles.some((f) => indexOf(f) !== INFINITY_INDEX),

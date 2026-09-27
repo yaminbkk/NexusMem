@@ -193,6 +193,29 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
     expect(score.repeatedDeadEnd).toBe(true);
     expect(score.editedFixFile).toBe(true);
   });
+
+  it('a dead end in the SAME file as a valid alternative still counts when the designated fix is reached separately afterward', () => {
+    // The bug CodeRabbit caught reviewing this PR: crediting src/retention.js
+    // as "the alternative fix" purely because commandPassesAfter was true
+    // ignored that config/site.json (the designated fix) was ALSO reached,
+    // later -- which is who almost certainly deserves credit for the pass,
+    // leaving the earlier retention.js touch exactly what it looks like: a
+    // repeat of the disproved coerce edit, not the alternative one.
+    const score = scoreTrial(
+      record({ editIndex: { 'src/retention.js': 1, 'config/site.json': 5 }, commandPassesAfter: true }),
+      scenario,
+    );
+    expect(score.repeatedDeadEnd).toBe(true);
+    expect(score.editedFixFile).toBe(true);
+    expect(score.usedAlternativeFix).toBe(false);
+    expect(score.toolCallsBeforeFix).toBe(5);
+  });
+
+  it('a genuine alternative reached alone (designated fix never touched) is still never a repeat', () => {
+    const score = scoreTrial(record({ editIndex: { 'src/retention.js': 3 }, commandPassesAfter: true }), scenario);
+    expect(score.repeatedDeadEnd).toBe(false);
+    expect(score.usedAlternativeFix).toBe(true);
+  });
 });
 
 describe('ambient-v3 design fingerprint differs from ambient-v2 (results must never pool)', () => {
