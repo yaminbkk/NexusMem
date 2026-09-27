@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, relative } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { passes, passesWith } from '../eval/ambient-v2/verify-fixtures.js';
 import { fingerprints as v2Fingerprints } from '../eval/ambient-v2/fingerprint.js';
@@ -85,7 +85,13 @@ describe('ambient-v3: git carries no trace of a prior attempt', () => {
     build();
     try {
       const events = scenario.events(dir, Date.UTC(2026, 0, 2));
-      const editedFiles = events.filter((e) => e.kind === 'edit').map((e) => e.filePath?.split(dir).pop()?.replace(/^[\\/]/, ''));
+      // `events()` builds `filePath` with `node:path`'s `join`, which spells the
+      // separator natively (`config\defaults.json` on Windows) -- normalise
+      // before comparing against the scenario's own forward-slash spelling,
+      // same reason eval/ambient-v2/fingerprint.ts canonicalises event paths.
+      const editedFiles = events
+        .filter((e) => e.kind === 'edit')
+        .map((e) => relative(dir, e.filePath ?? '').split('\\').join('/'));
       for (const deadEnd of scenario.deadEnds) expect(editedFiles).toContain(deadEnd.file);
     } finally {
       cleanup();
