@@ -229,8 +229,12 @@ describe('recoverExitStatusFromOutput', () => {
   });
 
   it('pipeline: 2>&1 | head loses the real status; ordinary program output is not evidence', () => {
-    // The known, unaddressed gap: the outer pipeline's own exit code (head's)
-    // is what Claude Code's hook sees, and nothing in stdout says otherwise.
+    // This function's own answer stays null -- it only ever trusts an explicit
+    // echo of $?, and a pipeline never has one worth trusting (see the
+    // "$? is the last stage's status" case above). The gap this used to leave
+    // open -- the shape falling back to a silently guessed "ok" -- is closed
+    // one level up, in parseHookPayloadDetailed: see "pipesIntoOpaqueFilter"
+    // below, which records "unknown" instead of trusting this null as a pass.
     expect(recoverExitStatusFromOutput('node check.js 2>&1 | head', 'AssertionError: expected 1 to be 2')).toBeNull();
   });
 
@@ -302,6 +306,58 @@ describe('parseHookPayloadDetailed: exit-status recovery end to end', () => {
       event: { outcome: 'ok', exitCode: 0 },
     });
     expect(parseHookPayloadDetailed(success('EXIT:abc'), NOW)).toMatchObject({ ok: true, event: { outcome: 'ok', exitCode: 0 } });
+  });
+
+  describe('pipesIntoOpaqueFilter: pipelines into head/tail/tee', () => {
+    it.each([
+      ['head, no flags', 'node check.js 2>&1 | head'],
+      ['head with a line count', 'node check.js 2>&1 | head -100'],
+      ['tail', 'node check.js 2>&1 | tail -n 50'],
+      ['tee', 'node check.js 2>&1 | tee build.log'],
+      ['no 2>&1, just the pipe', 'node check.js | head -100'],
+      ['cd-wrapped', 'cd "/repo" && node check.js 2>&1 | head -100'],
+    ])('%s: recorded as unknown, not a guessed pass, whatever the output says', (_label, command) => {
+      const outcome = parseHookPayloadDetailed(success('AssertionError: expected 1 to be 2', { tool_input: { command } }), NOW);
+      expect(outcome).toMatchObject({ ok: true, event: { outcome: 'unknown', exitCode: null } });
+    });
+
+    it('an unrecognised filter is left alone: still "do not guess for arbitrary pipelines"', () => {
+      const outcome = parseHookPayloadDetailed(
+        success('AssertionError: expected 1 to be 2', { tool_input: { command: 'node check.js 2>&1 | grep Error' } }),
+        NOW,
+      );
+      expect(outcome).toMatchObject({ ok: true, event: { outcome: 'ok', exitCode: 0 } });
+    });
+
+    it.each([
+      ['a script that merely starts with "head"', 'node check.js | head-check.sh'],
+      ['a script that merely starts with "tail"', 'node check.js | tail.sh --verbose'],
+      ['a script that merely starts with "tee"', 'node check.js | tee-my-script'],
+      ['a program name that contains "head" as a substring', 'node check.js | headphones'],
+      ['a program name that contains "tail" as a substring', 'node check.js | tailwind build'],
+    ])('%s: not mistaken for the real head/tail/tee', (_label, command) => {
+      const outcome = parseHookPayloadDetailed(success('AssertionError: expected 1 to be 2', { tool_input: { command } }), NOW);
+      expect(outcome).toMatchObject({ ok: true, event: { outcome: 'ok', exitCode: 0 } });
+    });
+
+    it('a real PostToolUseFailure piped into head is unaffected: the failure already has real evidence', () => {
+      const outcome = parseHookPayloadDetailed(
+        JSON.stringify({ ...FAILING_BASH, tool_input: { command: 'node check.js 2>&1 | head -100' } }),
+        NOW,
+      );
+      expect(outcome).toMatchObject({ ok: true, event: { outcome: 'fail', exitCode: 2 } });
+    });
+
+    it('an echoed status behind the filter is still not trusted as the piped command\'s own: stays unknown', () => {
+      // $? here is head's exit code, not check.js's -- echoesOwnExitStatus
+      // already refuses a body containing "|", so recovery finds nothing and
+      // the pipeline shape decides the outcome instead of a stale "ok".
+      const outcome = parseHookPayloadDetailed(
+        success('EXIT:1', { tool_input: { command: 'node check.js | head; echo "EXIT:$?"' } }),
+        NOW,
+      );
+      expect(outcome).toMatchObject({ ok: true, event: { outcome: 'unknown', exitCode: null } });
+    });
   });
 
   it('recovers the exit status without ever persisting the raw stdout it came from', () => {

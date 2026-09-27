@@ -212,4 +212,40 @@ describe('ambient memory, day 1 to day 7', () => {
     expect(filesContaining(join(repo, '.nexusmem'))).toEqual([]);
     expect(filesContaining(dirname(agentEventLogPath()))).toEqual([]);
   });
+
+  it('under real concurrent hook invocations racing the same failure, only one prints', async () => {
+    // `runAgentRecall` called as a function in the tests above cannot exercise
+    // this: it is one synchronous call path in one process, so nothing in it
+    // ever actually races itself. Claude Code's own hooks are real separate
+    // OS processes, and can fire for the same command at close to the same
+    // instant (parallel tool calls, or a retry racing the original). Spawning
+    // the built CLI N times is what reproduces that: manual testing against
+    // the pre-fix code (a plain read-then-write in agent/recall-state.ts) let
+    // 3 of 20 concurrent calls through; the file-lock fix has to bring that
+    // to exactly 1, the same guarantee `MAX_INJECTIONS_PER_SESSION` promises.
+    await runHook(edit('a.ts'));
+    await runHook(failed(FAILING, 'race-run-1'));
+    await runHook(edit('c.ts'));
+    await runHook(passed(FAILING, 'race-run-2'));
+    await runSync({ cwd: repo, full: false, rebuild: false, quiet: true, noEmbed: true });
+
+    const CLI = resolve('dist/cli/index.js');
+    const payload = JSON.stringify(failurePayload(FAILING, 'race-session'));
+    const N = 20;
+    const outputs = await Promise.all(
+      Array.from({ length: N }, () =>
+        new Promise<string>((done) => {
+          const child = spawn(process.execPath, [CLI, 'agent', 'recall', '--trigger', 'failure'], { stdio: ['pipe', 'pipe', 'ignore'] });
+          let out = '';
+          child.stdout.on('data', (c) => (out += c));
+          child.stdin.end(payload);
+          child.on('close', () => done(out));
+        }),
+      ),
+    );
+
+    const fired = outputs.filter((o) => o.length > 0);
+    expect(fired).toHaveLength(1);
+    expect(fired[0]).toContain('failed in this repository before');
+  }, 20_000);
 });

@@ -689,6 +689,54 @@ describe('nexusmem agent recall (CLI)', () => {
     expect(out.join('')).toBe('');
   });
 
+  it('a repeated pipeline into head/tail/tee produces recall on the next attempt, honestly worded', async () => {
+    // Issue #21: `cmd 2>&1 | head` hides the real exit status behind head's,
+    // so the first run cannot be proven to have failed -- but it should not
+    // be silently trusted as a pass either. Recorded as `outcome: 'unknown'`
+    // (see pipesIntoOpaqueFilter in the Claude Code adapter), it is exactly
+    // what a real first PostToolUse for this shape would produce, so this
+    // seeds it the same way seedFailure seeds a proven failure.
+    const command = 'node check.js 2>&1 | head -100';
+    const ws = resolveWorkspace(dir);
+    const { projectId } = await readConfig(ws);
+    const store = MemoryStore.open(ws.dbPath);
+    try {
+      const event = redactAgentEvent({
+        agent: 'claude-code',
+        sessionId: 'old-session',
+        eventId: 'old-piped-1',
+        ts: new Date(Date.now() - 3_600_000).toISOString(),
+        cwd: dir,
+        kind: 'command',
+        command,
+        outcome: 'unknown',
+        exitCode: null,
+        durationMs: 10,
+      } as AgentEvent);
+      store.upsertNodes(collectAgentEvents([event], projectId, { repoRoot: dir }));
+    } finally {
+      store.close();
+    }
+
+    const hit: string[] = [];
+    await runAgentRecall({
+      input: JSON.stringify({
+        session_id: `sess-${session}`,
+        cwd: dir,
+        hook_event_name: 'PostToolUse',
+        tool_name: 'Bash',
+        tool_input: { command },
+        tool_response: { stdout: 'AssertionError: expected 1 to be 2', stderr: '', interrupted: false },
+        tool_use_id: 'toolu_piped_repeat',
+      }),
+      out: (c) => hit.push(c),
+    });
+
+    expect(hit.join('')).toContain('undetermined outcome');
+    // Never claims proof it does not have -- the whole point of the fix.
+    expect(hit.join('')).not.toMatch(/\bfailed\b/);
+  });
+
   it('does not recover recall when the wrapped command genuinely succeeded ("EXIT:0")', async () => {
     await seedFailure('npm test');
 
