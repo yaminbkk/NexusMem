@@ -112,6 +112,11 @@ export interface TrialScore {
 
 const INFINITY_INDEX = Number.POSITIVE_INFINITY;
 
+const editIndexOf = (record: TrialRecord, file: string): number => record.editIndex[file] ?? INFINITY_INDEX;
+
+/** Every file that counts as reaching a real fix: the designated one, then every named alternative. */
+const fixCandidateFiles = (scenario: V3Scenario): string[] => [scenario.fix.file, ...scenario.validAlternativeFixes.map((e) => e.file)];
+
 /** Same path-matching rule as ambient-v2's scorer: exact, never a substring. See its own doc comment. */
 export function pathTokens(text: string): string[] {
   return (text.match(/[A-Za-z0-9_.\-/\\:~]+/g) ?? [])
@@ -149,9 +154,8 @@ interface Solution {
  */
 function findSolution(record: TrialRecord, scenario: V3Scenario): Solution {
   if (record.passIndex === null) return { file: null, index: INFINITY_INDEX };
-  const indexOf = (file: string): number => record.editIndex[file] ?? INFINITY_INDEX;
-  const candidates = [scenario.fix.file, ...scenario.validAlternativeFixes.map((e) => e.file)]
-    .map((file) => ({ file, index: indexOf(file) }))
+  const candidates = fixCandidateFiles(scenario)
+    .map((file) => ({ file, index: editIndexOf(record, file) }))
     .filter((c) => c.index <= record.passIndex!);
   if (candidates.length === 0) return { file: null, index: INFINITY_INDEX };
   candidates.sort((a, b) => b.index - a.index || (a.file === scenario.fix.file ? -1 : 1));
@@ -160,19 +164,18 @@ function findSolution(record: TrialRecord, scenario: V3Scenario): Solution {
 
 export function scoreTrial(record: TrialRecord, scenario: V3Scenario): TrialScore {
   const measured = !record.systemFailure && !record.error;
-  const indexOf = (file: string): number => record.editIndex[file] ?? INFINITY_INDEX;
+  const indexOf = (file: string): number => editIndexOf(record, file);
 
   const solution = findSolution(record, scenario);
   const solutionIndex = solution.index;
 
   const repeatedBeforeSolution = scenario.deadEnds.filter((e) => indexOf(e.file) < solutionIndex);
 
-  const alternativeFiles = new Set(scenario.validAlternativeFixes.map((e) => e.file));
   const deliveredBeforeSolution = record.injections.filter((i) => i.index < solutionIndex);
   const usefulMemoryDelivery =
     solutionIndex !== INFINITY_INDEX &&
     repeatedBeforeSolution.length === 0 &&
-    deliveredBeforeSolution.some((i) => names(i.text, scenario.fix.file) || [...alternativeFiles].some((f) => names(i.text, f)));
+    deliveredBeforeSolution.some((i) => fixCandidateFiles(scenario).some((f) => names(i.text, f)));
 
   return {
     scenario: record.scenario,
