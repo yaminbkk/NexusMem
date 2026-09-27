@@ -13,11 +13,28 @@ import type { V3Scenario } from './scenario.js';
  * that found a real alternative solution a repeated dead end, which is
  * exactly backwards.
  *
- * The fix: `validAlternativeFixes` names the file(s) a genuine alternative
- * can live in, and a dead-end match on one of those files is only counted
- * when the command still failed. A run whose edit there coincided with the
- * command passing gets credit for a real fix, never a penalty for repeating
- * one.
+ * First attempt at a fix here credited an alternative-fix file whenever the
+ * command passed and the designated fix was untouched -- caught in review
+ * (CodeRabbit) as still wrong the moment a run touches an alternative file
+ * AND the designated fix: crediting "untouched designated fix" as the signal
+ * cannot tell a repeat-then-real-fix run apart from a real alternative,
+ * because it still never looks at WHEN the command actually turned green.
+ * That was a second file-only heuristic patched over the first one, not a
+ * fix to the underlying gap.
+ *
+ * The actual fix needs the one fact file-and-order data cannot supply on its
+ * own: `record.passIndex`, the tool-call index the command first passed.
+ * `editIndex` on its own says "this file's first edit is here"; it never
+ * says which edit is still standing at any later moment, so two edits to one
+ * file are indistinguishable by index alone regardless of how the "which
+ * file wins" rule is phrased. Given `passIndex`, the scorer looks at every
+ * candidate fix file (the designated one, or a named alternative) edited AT
+ * OR BEFORE the pass and credits whichever was edited MOST RECENTLY before
+ * it -- the one edit that was actually still in effect when the command
+ * went green, no matter how many other candidate files were also touched
+ * earlier. A dead end that shares a file with a valid alternative is scored
+ * correctly regardless of how many other alternatives exist or in what
+ * order they were tried, which the file-only heuristic could not promise.
  */
 
 export const ARMS = ['control', 'mcp', 'ambient'] as const;
@@ -39,7 +56,18 @@ export interface TrialRecord {
   editedFiles: readonly string[];
   editIndex: Readonly<Record<string, number>>;
   finalChangedFiles: readonly string[];
+  /** The run's own final state: did the command pass at the end, whatever happened in between. */
   commandPassesAfter: boolean;
+  /**
+   * Tool-call index of the FIRST time the command passed, or null if it
+   * never did. Distinct from `commandPassesAfter`: a run can pass once, then
+   * break it again later and still end with `commandPassesAfter: false` (or
+   * the reverse is impossible -- ending green means it passed at least
+   * once). This is what lets the scorer identify *which* edit was actually
+   * in effect at the moment the command first went green, instead of only
+   * knowing that some edit, at some point, eventually did.
+   */
+  passIndex: number | null;
 
   toolCalls: number;
   failedToolCalls: number;
@@ -84,6 +112,11 @@ export interface TrialScore {
 
 const INFINITY_INDEX = Number.POSITIVE_INFINITY;
 
+const editIndexOf = (record: TrialRecord, file: string): number => record.editIndex[file] ?? INFINITY_INDEX;
+
+/** Every file that counts as reaching a real fix: the designated one, then every named alternative. */
+const fixCandidateFiles = (scenario: V3Scenario): string[] => [scenario.fix.file, ...scenario.validAlternativeFixes.map((e) => e.file)];
+
 /** Same path-matching rule as ambient-v2's scorer: exact, never a substring. See its own doc comment. */
 export function pathTokens(text: string): string[] {
   return (text.match(/[A-Za-z0-9_.\-/\\:~]+/g) ?? [])
@@ -101,41 +134,48 @@ export function names(text: string, file: string): boolean {
   });
 }
 
+interface Solution {
+  file: string | null;
+  index: number;
+}
+
+/**
+ * Which edit was actually in effect when the command first went green: among
+ * every candidate fix file (the designated one, or a named alternative)
+ * edited at or before `passIndex`, the one edited most recently. Any earlier
+ * edit to a candidate file was superseded before the pass and explains
+ * nothing about it -- credit goes to whatever was still standing at the
+ * moment that mattered, not to whichever candidate happens to sort first.
+ *
+ * A tie (two candidates edited at the same tool-call index, which a real
+ * transcript cannot produce but a hand-built test record could) prefers the
+ * designated fix, so a degenerate input never silently manufactures an
+ * alternative-fix credit.
+ */
+function findSolution(record: TrialRecord, scenario: V3Scenario): Solution {
+  if (record.passIndex === null) return { file: null, index: INFINITY_INDEX };
+  const candidates = fixCandidateFiles(scenario)
+    .map((file) => ({ file, index: editIndexOf(record, file) }))
+    .filter((c) => c.index <= record.passIndex!);
+  if (candidates.length === 0) return { file: null, index: INFINITY_INDEX };
+  candidates.sort((a, b) => b.index - a.index || (a.file === scenario.fix.file ? -1 : 1));
+  return candidates[0]!;
+}
+
 export function scoreTrial(record: TrialRecord, scenario: V3Scenario): TrialScore {
   const measured = !record.systemFailure && !record.error;
-  const indexOf = (file: string): number => record.editIndex[file] ?? INFINITY_INDEX;
+  const indexOf = (file: string): number => editIndexOf(record, file);
 
-  const alternativeFiles = new Set(scenario.validAlternativeFixes.map((e) => e.file));
-  // A designated-fix reach, or the earliest reach of an alternative-fix file
-  // that actually coincided with the command passing -- an alternative edit
-  // that did NOT make it pass is not a fix, it is just another attempt in
-  // the same file as one, and must still be able to count as a dead end.
-  const alternativeIndex =
-    record.commandPassesAfter && alternativeFiles.size > 0
-      ? Math.min(...scenario.validAlternativeFixes.map((e) => indexOf(e.file)), INFINITY_INDEX)
-      : INFINITY_INDEX;
-  const solutionIndex = Math.min(indexOf(scenario.fix.file), alternativeIndex);
+  const solution = findSolution(record, scenario);
+  const solutionIndex = solution.index;
 
-  /**
-   * `editIndex` records only the FIRST edit to a file, never each edit's own
-   * content -- so a dead end and its file's own valid alternative, if they
-   * share a file (`src/retention.js` is both `RETENTION_DEAD_COERCE` and
-   * `RETENTION_ALT_FIX` here), are indistinguishable by index alone. This is
-   * resolved in the direction the acceptance criterion demands ("the scorer
-   * accepts every fix that makes check.js pass"): when the command passed,
-   * `alternativeIndex` above already equals that same file's index, which
-   * makes `solutionIndex` equal to it too -- so the dead-end entry for that
-   * file fails `at < solutionIndex` (`at` cannot be *before* itself) and is
-   * excluded here, rather than counted as a repeat. A file with no valid
-   * alternative keeps the ordinary, stricter comparison.
-   */
   const repeatedBeforeSolution = scenario.deadEnds.filter((e) => indexOf(e.file) < solutionIndex);
 
   const deliveredBeforeSolution = record.injections.filter((i) => i.index < solutionIndex);
   const usefulMemoryDelivery =
     solutionIndex !== INFINITY_INDEX &&
     repeatedBeforeSolution.length === 0 &&
-    deliveredBeforeSolution.some((i) => names(i.text, scenario.fix.file) || [...alternativeFiles].some((f) => names(i.text, f)));
+    deliveredBeforeSolution.some((i) => fixCandidateFiles(scenario).some((f) => names(i.text, f)));
 
   return {
     scenario: record.scenario,
@@ -147,7 +187,7 @@ export function scoreTrial(record: TrialRecord, scenario: V3Scenario): TrialScor
 
     taskSuccess: record.commandPassesAfter,
     editedFixFile: solutionIndex !== INFINITY_INDEX,
-    usedAlternativeFix: alternativeIndex !== INFINITY_INDEX && alternativeIndex <= indexOf(scenario.fix.file),
+    usedAlternativeFix: solution.file !== null && solution.file !== scenario.fix.file,
     toolCallsBeforeFix: solutionIndex === INFINITY_INDEX ? null : solutionIndex,
     deadEndsRepeated: scenario.deadEnds.filter((e) => indexOf(e.file) !== INFINITY_INDEX).length,
     followedIrrelevantMemory: scenario.noiseFiles.some((f) => indexOf(f) !== INFINITY_INDEX),
