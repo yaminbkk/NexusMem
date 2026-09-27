@@ -70,6 +70,59 @@ function echoesOwnExitStatus(command: string): boolean {
   return body !== undefined && body.trim().length > 0 && !/[|;\r\n]/.test(body);
 }
 
+/**
+ * `head`, `tail` and `tee`, as the last stage of a pipeline: three utilities
+ * that pass their input through (or duplicate it) and exit 0 regardless of
+ * whether what fed them did. `cmd 2>&1 | head -100` is the shape the Phase-5
+ * eval actually observed (12 of 69 calls): the outer command Claude Code's
+ * hook sees is the pipeline's, so it reports PostToolUse/exit 0 even when
+ * `cmd` itself failed loudly.
+ *
+ * Deliberately just these three, matched only as the pipeline's final stage.
+ * A pipe into anything else (`| grep`, `| jq`, `| sort`, a second real
+ * program) is left alone: nothing about an arbitrary filter's own exit code
+ * is known here, and guessing would be exactly the overclaim this module
+ * exists to avoid. See `recallUncertain` for how this is surfaced without
+ * ever being worded as a proven failure.
+ *
+ * The name must not be followed by another filename character, not just a
+ * `\b` word boundary: `\b` alone also fires before `-` or `.`, which matched
+ * a script called `head-check.sh` or `tail.sh` as if it were the real
+ * `head`/`tail`. Found by testing the regex against exactly that shape.
+ */
+const OPAQUE_FILTER_TAIL = /\|\s*(?:head|tail|tee)(?![A-Za-z0-9._-])[^|]*$/i;
+
+function pipesIntoOpaqueFilter(command: string): boolean {
+  return OPAQUE_FILTER_TAIL.test(command.trim());
+}
+
+/**
+ * What actually happened to a Bash call, as one decision instead of two
+ * `outcome`/`exitCode` fields computed by separate, parallel ternaries that
+ * have to be kept in sync by hand. Checked in order of how much the evidence
+ * can be trusted:
+ *
+ * 1. A real `PostToolUseFailure` already carries its own exit code in `error`
+ *    -- nothing here second-guesses it.
+ * 2. An explicit `; echo "exit:$?"` the command itself printed is the next
+ *    most trustworthy thing, and can flip a hook-reported "ok" to a "fail".
+ * 3. With neither, a pipeline into `head`/`tail`/`tee` means the hook's own
+ *    "ok" is unproven, not disproven: `unknown`, never a guessed pass or fail.
+ * 4. Otherwise the hook's own verdict stands.
+ */
+function classifyBashResult(
+  hookOutcome: AgentOutcome,
+  failed: boolean,
+  error: { exitCode: number | null; signature: string } | null,
+  recovered: number | null,
+  command: string,
+): { outcome: AgentOutcome; exitCode: number | null } {
+  if (failed) return { outcome: hookOutcome, exitCode: error?.exitCode ?? null };
+  if (recovered !== null) return { outcome: recovered === 0 ? 'ok' : 'fail', exitCode: recovered };
+  if (pipesIntoOpaqueFilter(command)) return { outcome: 'unknown', exitCode: null };
+  return { outcome: hookOutcome, exitCode: 0 };
+}
+
 export function recoverExitStatusFromOutput(command: string, stdout: string | undefined): number | null {
   if (!stdout || !echoesOwnExitStatus(command)) return null;
   const lines = stdout.split(/\r?\n/).map((l) => l.trim());
@@ -190,12 +243,7 @@ export function parseHookPayloadDetailed(rawJson: string, now: string): ParseOut
       ...base,
       kind: 'command',
       command,
-      // Recovered evidence of a non-zero exit overrides the hook's own "it
-      // succeeded" -- the outer shell call did, but the command inside it did
-      // not. No evidence (recovered === null) leaves the hook's word as-is.
-      outcome: recovered !== null && recovered !== 0 ? 'fail' : outcome,
-      // A success carries no exit code because success is what it means; a failure hides it in text.
-      exitCode: failed ? (error?.exitCode ?? null) : (recovered ?? 0),
+      ...classifyBashResult(outcome, failed, error, recovered, command),
       ...(error?.signature ? { errorSignature: error.signature } : {}),
     };
     return { ok: true, event: redactAgentEvent(draft), family };

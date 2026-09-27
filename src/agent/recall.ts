@@ -67,6 +67,8 @@ const SELECT_BY_ID = `
          (SELECT group_concat(f.path) FROM node_files f WHERE f.node_id = n.id) AS paths
   FROM nodes n WHERE n.id = ?`;
 
+const lookupNode = (store: MemoryStore, id: string): NodeRow | undefined => store.raw.prepare(SELECT_BY_ID).get(id) as NodeRow | undefined;
+
 /**
  * Conventional `revert: ...` / `revert(scope): ...`, and git's own
  * `Revert "..."`. Nothing looser: in the Phase-5 fixtures a plain
@@ -105,6 +107,8 @@ function revertOfFix(store: MemoryStore, projectId: string, fixId: string): { ts
 
 const day = (ts: string): string => ts.slice(0, 10);
 const files = (row: NodeRow): string => (row.paths ? row.paths.split(',').join(', ') : '');
+/** Same, for a fix that might not have been found at all -- never both null-checks at each call site. */
+const fixFilesOf = (fix: NodeRow | undefined): string => (fix ? files(fix) : '');
 
 function describeAttempt(row: NodeRow): string {
   const changed = files(row);
@@ -135,7 +139,7 @@ export function recallFailure(store: MemoryStore, projectId: string, execHash: s
   for (const row of past) {
     const [fixId] = store.getLinkedNodeIds(row.id, RESOLVED_BY_RETRY);
     if (!fixId) continue;
-    const fix = db.prepare(SELECT_BY_ID).get(fixId) as NodeRow | undefined;
+    const fix = lookupNode(store, fixId);
     if (!fix) continue;
     const changed = files(fix);
     const what = changed ? `fixed on ${day(fix.ts)} after editing ${changed}` : `fixed on ${day(fix.ts)}`;
@@ -169,6 +173,46 @@ export function recallFailure(store: MemoryStore, projectId: string, execHash: s
     resolved,
     superseded,
     stale,
+  };
+}
+
+const SELECT_UNCERTAIN_BY_HASH = `
+  SELECT n.id, n.ts, n.meta, NULL AS paths
+  FROM nodes n
+  WHERE n.project_id = ?
+    AND n.kind = 'shell_command'
+    AND json_extract(n.meta, '$.execHash') = ?
+    AND json_extract(n.meta, '$.outcome') = 'unknown'
+  ORDER BY n.ts DESC
+  LIMIT ?`;
+
+export interface UncertainRecall {
+  text: string;
+  /** How many past undetermined runs backed this. */
+  matched: number;
+}
+
+/**
+ * `recallFailure`'s sibling for the one case that is not the same claim.
+ *
+ * A command piped into a filter that swallows its real exit status (`| head`,
+ * `| tail`, `| tee`) is recorded with `outcome: 'unknown'`, never as a proven
+ * pass or fail -- see `pipesIntoOpaqueFilter` in the Claude Code adapter.
+ * Saying "this has failed before" about one of those rows would be exactly
+ * the overclaim `recallFailure` exists to avoid making, so this never feeds
+ * that query or its count: its own header says only what is actually known.
+ */
+export function recallUncertain(store: MemoryStore, projectId: string, execHash: string): UncertainRecall | null {
+  const past = store.raw.prepare(SELECT_UNCERTAIN_BY_HASH).all(projectId, execHash, MAX_PAST_FAILURES) as NodeRow[];
+  if (past.length === 0) return null;
+
+  const lines = past.map((row) => `- ${day(row.ts)}: ran here, but its exit status was hidden behind the filter it was piped into`);
+  const header = `NexusMem: this exact command has an undetermined outcome here before (${past.length} time(s)) -- it is piped into a filter (head/tail/tee) whose own exit status hides whether the command it fed actually passed.`;
+  const footer = 'Capture the real status directly (e.g. read $? or PIPESTATUS before piping) if this run needs to be trusted.';
+
+  return {
+    text: [header, ...lines, footer].join('\n').slice(0, MAX_RECALL_CHARS),
+    matched: past.length,
   };
 }
 
@@ -218,6 +262,8 @@ interface CommandSummary {
   state: CommandState;
   /** When state is 'resolved', 'stale' or 'superseded': when the (possibly no-longer-holding) fix landed. */
   fixTs?: string;
+  /** Same states: the files that fix touched, comma-joined. Empty when the fix recorded none. */
+  fixFiles?: string;
   /** When state is 'superseded': when the revert that undid that fix landed. */
   revertTs?: string;
 }
@@ -274,26 +320,27 @@ export function recallSessionStart(store: MemoryStore, projectId: string, now = 
   for (const { command, rows: [newest, ...older] } of byExecution.values()) {
     const [newestFixId] = store.getLinkedNodeIds(newest!.id, RESOLVED_BY_RETRY);
     if (newestFixId) {
-      const fix = store.raw.prepare(SELECT_BY_ID).get(newestFixId) as NodeRow | undefined;
+      const fix = lookupNode(store, newestFixId);
       const revert = revertOfFix(store, projectId, newestFixId);
+      const fixFiles = fixFilesOf(fix);
       summaries.push(
         revert
-          ? { command, newestTs: newest!.ts, state: 'superseded', fixTs: fix?.ts, revertTs: revert.ts }
-          : { command, newestTs: newest!.ts, state: 'resolved', fixTs: fix?.ts },
+          ? { command, newestTs: newest!.ts, state: 'superseded', fixTs: fix?.ts, fixFiles, revertTs: revert.ts }
+          : { command, newestTs: newest!.ts, state: 'resolved', fixTs: fix?.ts, fixFiles },
       );
       continue;
     }
     const staleFixId = older.map((row) => store.getLinkedNodeIds(row.id, RESOLVED_BY_RETRY)[0]).find((id): id is string => id !== undefined);
     if (staleFixId) {
-      const fix = store.raw.prepare(SELECT_BY_ID).get(staleFixId) as NodeRow | undefined;
-      summaries.push({ command, newestTs: newest!.ts, state: 'stale', fixTs: fix?.ts });
+      const fix = lookupNode(store, staleFixId);
+      summaries.push({ command, newestTs: newest!.ts, state: 'stale', fixTs: fix?.ts, fixFiles: fixFilesOf(fix) });
       continue;
     }
     // Weaker evidence than a retry link, and never described as a fix -- see
     // the doc comment above. Only checked once retry evidence is exhausted.
     const [discussionId] = store.getLinkedNodeIds(newest!.id, RESOLVED_BY_DISCUSSION);
     if (discussionId) {
-      const discussion = store.raw.prepare(SELECT_BY_ID).get(discussionId) as NodeRow | undefined;
+      const discussion = lookupNode(store, discussionId);
       summaries.push({ command, newestTs: newest!.ts, state: 'uncertain', fixTs: discussion?.ts });
     } else {
       summaries.push({ command, newestTs: newest!.ts, state: 'unresolved' });
@@ -304,12 +351,13 @@ export function recallSessionStart(store: MemoryStore, projectId: string, now = 
 
   const listed = summaries.slice(0, MAX_DIGEST_COMMANDS);
   const lines = listed.map((s) => {
-    if (s.state === 'resolved') return `- ${s.command} (failed here before, fixed ${day(s.fixTs!)})`;
+    const editSuffix = s.fixFiles ? ` after editing ${s.fixFiles}` : '';
+    if (s.state === 'resolved') return `- ${s.command} (failed here before, fixed ${day(s.fixTs!)}${editSuffix})`;
     if (s.state === 'stale') {
-      return `- ${s.command} (fixed ${day(s.fixTs!)}, but failed again ${day(s.newestTs)} -- that fix no longer holds)`;
+      return `- ${s.command} (fixed ${day(s.fixTs!)}${editSuffix}, but failed again ${day(s.newestTs)} -- that fix no longer holds)`;
     }
     if (s.state === 'superseded') {
-      return `- ${s.command} (fixed ${day(s.fixTs!)}, but that fix was reverted ${day(s.revertTs!)} -- it no longer holds)`;
+      return `- ${s.command} (fixed ${day(s.fixTs!)}${editSuffix}, but that fix was reverted ${day(s.revertTs!)} -- it no longer holds)`;
     }
     if (s.state === 'uncertain') {
       return `- ${s.command} failed ${day(s.newestTs)} -- possibly discussed around ${day(s.fixTs!)}, not confirmed as a fix`;

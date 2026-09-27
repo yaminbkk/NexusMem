@@ -153,7 +153,11 @@ describe('F4 changed-file accounting', () => {
 
       expect(changedFiles(dir)).toEqual(['config/site.json', 'config/zz.json', 'docs/operations.md']);
     } finally {
-      rmSync(dir, { recursive: true, force: true });
+      // ENOTEMPTY on rmdir('.git') is a real, git-specific cleanup race, not a
+      // correctness bug: this only happens to git-initialised temp dirs, never
+      // to the git-free fixtures elsewhere in this file. Same treatment as
+      // tests/eval-v2-contamination.test.ts's own workspace cleanup.
+      rmSync(dir, { recursive: true, force: true, maxRetries: 20, retryDelay: 250 });
     }
   });
 });

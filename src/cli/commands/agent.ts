@@ -7,8 +7,8 @@ import pc from 'picocolors';
 import { readCaptureStatus } from '../../agent/capture-health.js';
 import { stripBom } from '../../core/text.js';
 import { type AgentHookCommands, agentHookCommands, hookCommandPaths } from '../../agent/hook-command.js';
-import { recallFailure, recallSessionStart } from '../../agent/recall.js';
-import { markInjected, shouldInject } from '../../agent/recall-state.js';
+import { recallFailure, recallSessionStart, recallUncertain } from '../../agent/recall.js';
+import { claimInjection, shouldInject } from '../../agent/recall-state.js';
 import {
   agentHookStatus,
   type ClaudeSettings,
@@ -283,8 +283,10 @@ export async function runAgentRecall(opts: AgentRecallOptions = {}): Promise<num
     // Whether this run failed is the payload's own answer, already decided by the
     // adapter's evidence rules: a real PostToolUseFailure, or a status the command
     // itself echoed in a shape those rules accept. The event that carried it is
-    // only used to address the reply.
-    if (event.kind !== 'command' || event.outcome !== 'fail' || !event.execHash || !event.cwd) return 0;
+    // only used to address the reply. `unknown` is the one other outcome worth
+    // answering on: a command piped into a filter that hid its real status --
+    // see `recallUncertain`, which never conflates that with a proven failure.
+    if (event.kind !== 'command' || (event.outcome !== 'fail' && event.outcome !== 'unknown') || !event.execHash || !event.cwd) return 0;
     const hookEventName = HOOK_EVENT_BY_FAMILY[parsed.family];
     if (!hookEventName) return 0;
     if (!shouldInject(event.sessionId, event.execHash)) return 0;
@@ -296,15 +298,17 @@ export async function runAgentRecall(opts: AgentRecallOptions = {}): Promise<num
     const { projectId } = await readConfig(ws);
 
     const store = MemoryStore.open(ws.dbPath);
-    let recall: ReturnType<typeof recallFailure>;
+    let recall: ReturnType<typeof recallFailure> | ReturnType<typeof recallUncertain>;
     try {
-      recall = recallFailure(store, projectId, event.execHash);
+      recall = event.outcome === 'fail' ? recallFailure(store, projectId, event.execHash) : recallUncertain(store, projectId, event.execHash);
     } finally {
       store.close();
     }
     if (!recall) return 0;
-
-    markInjected(event.sessionId, event.execHash);
+    // Atomic: the earlier `shouldInject` was only a cheap early-out and can
+    // race another call on the same key; this is the one call that actually
+    // decides, so only its answer gates whether anything gets printed.
+    if (!claimInjection(event.sessionId, event.execHash)) return 0;
     out(
       `${JSON.stringify({
         hookSpecificOutput: { hookEventName, additionalContext: recall.text },

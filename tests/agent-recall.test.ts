@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { type AgentEvent, redactAgentEvent } from '../src/agent/event.js';
-import { MAX_DIGEST_CHARS, MAX_RECALL_CHARS, recallFailure, recallSessionStart } from '../src/agent/recall.js';
-import { markInjected, MAX_INJECTIONS_PER_SESSION, shouldInject } from '../src/agent/recall-state.js';
+import { MAX_DIGEST_CHARS, MAX_RECALL_CHARS, recallFailure, recallSessionStart, recallUncertain } from '../src/agent/recall.js';
+import { claimInjection, MAX_INJECTIONS_PER_SESSION, shouldInject } from '../src/agent/recall-state.js';
 import { collectAgentEvents } from '../src/collectors/agent-events.js';
 import { correlateFailures, RESOLVED_BY_DISCUSSION } from '../src/correlate/failure-fix.js';
 import { sha256Hex } from '../src/core/ids.js';
@@ -196,6 +196,37 @@ describe('recallFailure', () => {
 
     expect(() => recallFailure(store, PROJECT, HASH('npm test'))).not.toThrow();
     expect(recallFailure(store, PROJECT, HASH('npm test'))).toBeNull();
+  });
+});
+
+describe('recallUncertain', () => {
+  // The exact shape a piped command lands in the database as -- see
+  // `pipesIntoOpaqueFilter` in the Claude Code adapter: outcome 'unknown',
+  // no exit code, because head/tail/tee hide whatever the piped command did.
+  const PIPED = 'node check.js 2>&1 | head -100';
+
+  it('says nothing when this exact pipeline has no recorded history', () => {
+    expect(recallUncertain(store, PROJECT, HASH(PIPED))).toBeNull();
+  });
+
+  it('says nothing for a pipeline that only ever ran with a known outcome', () => {
+    store.upsertNodes(collectAgentEvents([event({ command: PIPED, outcome: 'fail', exitCode: 1 })], PROJECT, { repoRoot: ROOT }));
+    expect(recallUncertain(store, PROJECT, HASH(PIPED))).toBeNull();
+  });
+
+  it('surfaces a repeated undetermined outcome without ever calling it a failure', () => {
+    store.upsertNodes(collectAgentEvents([event({ command: PIPED, outcome: 'unknown', exitCode: null, ts: at(0) })], PROJECT, { repoRoot: ROOT }));
+
+    const recall = recallUncertain(store, PROJECT, HASH(PIPED));
+    expect(recall).not.toBeNull();
+    expect(recall!.matched).toBe(1);
+    expect(recall!.text).toContain('undetermined outcome');
+    expect(recall!.text).not.toMatch(/\bfailed\b/);
+  });
+
+  it('says nothing for another project history', () => {
+    store.upsertNodes(collectAgentEvents([event({ command: PIPED, outcome: 'unknown', exitCode: null })], PROJECT, { repoRoot: ROOT }));
+    expect(recallUncertain(store, 'someone-else', HASH(PIPED))).toBeNull();
   });
 });
 
@@ -517,21 +548,39 @@ describe('recall quota', () => {
 
   it('explains one failure once per session', () => {
     expect(shouldInject('s1', 'hash-a', statePath)).toBe(true);
-    markInjected('s1', 'hash-a', statePath);
+    expect(claimInjection('s1', 'hash-a', statePath)).toBe(true);
 
     expect(shouldInject('s1', 'hash-a', statePath)).toBe(false);
+    expect(claimInjection('s1', 'hash-a', statePath)).toBe(false);
     expect(shouldInject('s1', 'hash-b', statePath)).toBe(true);
     expect(shouldInject('s2', 'hash-a', statePath)).toBe(true);
   });
 
   it('stops after the per-session ceiling', () => {
-    for (let i = 0; i < MAX_INJECTIONS_PER_SESSION; i += 1) markInjected('s1', `hash-${i}`, statePath);
+    for (let i = 0; i < MAX_INJECTIONS_PER_SESSION; i += 1) expect(claimInjection('s1', `hash-${i}`, statePath)).toBe(true);
     expect(shouldInject('s1', 'hash-new', statePath)).toBe(false);
+    expect(claimInjection('s1', 'hash-new', statePath)).toBe(false);
   });
 
   it('treats a missing or corrupt state file as an empty one', () => {
     expect(shouldInject('s1', 'hash-a', join(dir, 'nope.json'))).toBe(true);
+    expect(claimInjection('s1', 'hash-a', join(dir, 'nope.json'))).toBe(true);
   });
+
+  it('claimInjection alone enforces the cap and dedup, without shouldInject ever being asked', () => {
+    // shouldInject is documented as a cheap, unlocked pre-check that two
+    // racing calls can both pass; claimInjection has to be correct on its
+    // own, since it is the only call that actually records anything.
+    for (let i = 0; i < MAX_INJECTIONS_PER_SESSION; i += 1) expect(claimInjection('s1', `k${i}`, statePath)).toBe(true);
+    expect(claimInjection('s1', 'k0', statePath)).toBe(false); // already recorded
+    expect(claimInjection('s1', 'k-overflow', statePath)).toBe(false); // cap reached
+    expect(claimInjection('s2', 'k0', statePath)).toBe(true); // a different session starts fresh
+  });
+
+  // A real multi-process race (not just this module's own logic) is covered
+  // end to end in tests/agent-e2e.test.ts, through the built CLI a hook
+  // actually spawns -- a single Node process cannot race its own synchronous
+  // fs calls against itself, so proving the lock needs real separate processes.
 });
 
 /**
