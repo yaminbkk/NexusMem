@@ -133,6 +133,7 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
     editIndex: {},
     finalChangedFiles: [],
     commandPassesAfter: false,
+    passIndex: null,
     toolCalls: 0,
     failedToolCalls: 0,
     turns: 0,
@@ -145,7 +146,7 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
 
   it('the retention case: editing src/retention.js and passing is a fix, never a repeated dead end', () => {
     const score = scoreTrial(
-      record({ editIndex: { 'src/retention.js': 1 }, commandPassesAfter: true }),
+      record({ editIndex: { 'src/retention.js': 1 }, commandPassesAfter: true, passIndex: 2 }),
       scenario,
     );
     expect(score.repeatedDeadEnd).toBe(false);
@@ -156,7 +157,7 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
 
   it('editing src/retention.js and STILL failing is still a repeated dead end', () => {
     const score = scoreTrial(
-      record({ editIndex: { 'src/retention.js': 1 }, commandPassesAfter: false }),
+      record({ editIndex: { 'src/retention.js': 1 }, commandPassesAfter: false, passIndex: null }),
       scenario,
     );
     expect(score.repeatedDeadEnd).toBe(true);
@@ -166,7 +167,7 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
 
   it('the designated fix is still credited normally, and never called an alternative', () => {
     const score = scoreTrial(
-      record({ editIndex: { 'config/site.json': 1 }, commandPassesAfter: true }),
+      record({ editIndex: { 'config/site.json': 1 }, commandPassesAfter: true, passIndex: 2 }),
       scenario,
     );
     expect(score.editedFixFile).toBe(true);
@@ -176,7 +177,7 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
 
   it('the OTHER dead end (config/defaults.json, no alternative declared there) is unaffected by this fix', () => {
     const score = scoreTrial(
-      record({ editIndex: { 'config/defaults.json': 1 }, commandPassesAfter: false }),
+      record({ editIndex: { 'config/defaults.json': 1 }, commandPassesAfter: false, passIndex: null }),
       scenario,
     );
     expect(score.repeatedDeadEnd).toBe(true);
@@ -187,7 +188,7 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
     // first, then the real fix reached afterwards: still a repeat, because
     // it happened BEFORE the run found the actual answer.
     const score = scoreTrial(
-      record({ editIndex: { 'config/defaults.json': 1, 'config/site.json': 2 }, commandPassesAfter: true }),
+      record({ editIndex: { 'config/defaults.json': 1, 'config/site.json': 2 }, commandPassesAfter: true, passIndex: 3 }),
       scenario,
     );
     expect(score.repeatedDeadEnd).toBe(true);
@@ -198,11 +199,16 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
     // The bug CodeRabbit caught reviewing this PR: crediting src/retention.js
     // as "the alternative fix" purely because commandPassesAfter was true
     // ignored that config/site.json (the designated fix) was ALSO reached,
-    // later -- which is who almost certainly deserves credit for the pass,
-    // leaving the earlier retention.js touch exactly what it looks like: a
-    // repeat of the disproved coerce edit, not the alternative one.
+    // later -- which is who almost certainly deserves credit for the pass.
+    // Fixed properly (not by special-casing "designated fix untouched", which
+    // was itself only a second file-only heuristic): `passIndex` says the
+    // command went green at tool call 6, and of the two candidate files
+    // edited at or before that, config/site.json (index 5) is the more
+    // recent one -- the retention.js edit at index 1 was superseded before
+    // the pass and explains nothing about it, so it is scored as the
+    // ordinary, unproven dead end it looks like.
     const score = scoreTrial(
-      record({ editIndex: { 'src/retention.js': 1, 'config/site.json': 5 }, commandPassesAfter: true }),
+      record({ editIndex: { 'src/retention.js': 1, 'config/site.json': 5 }, commandPassesAfter: true, passIndex: 6 }),
       scenario,
     );
     expect(score.repeatedDeadEnd).toBe(true);
@@ -212,9 +218,53 @@ describe('ambient-v3 scorer: accepts every fix that makes check.js pass', () => 
   });
 
   it('a genuine alternative reached alone (designated fix never touched) is still never a repeat', () => {
-    const score = scoreTrial(record({ editIndex: { 'src/retention.js': 3 }, commandPassesAfter: true }), scenario);
+    const score = scoreTrial(record({ editIndex: { 'src/retention.js': 3 }, commandPassesAfter: true, passIndex: 4 }), scenario);
     expect(score.repeatedDeadEnd).toBe(false);
     expect(score.usedAlternativeFix).toBe(true);
+  });
+
+  it('an edit after the pass is irrelevant: only what was in effect AT the pass counts', () => {
+    // The designated fix reached and passed at tool call 2; a later,
+    // unrelated touch to the dead-end-sharing file at tool call 9 (long after
+    // the run already succeeded) must not retroactively taint the result.
+    const score = scoreTrial(
+      record({ editIndex: { 'config/site.json': 2, 'src/retention.js': 9 }, commandPassesAfter: true, passIndex: 2 }),
+      scenario,
+    );
+    expect(score.repeatedDeadEnd).toBe(false);
+    expect(score.usedAlternativeFix).toBe(false);
+    expect(score.toolCallsBeforeFix).toBe(2);
+  });
+
+  it('two valid alternatives: credits whichever was edited most recently before the pass, not whichever sorts first', () => {
+    // A synthetic scenario with a SECOND alternative-fix file (an unrelated
+    // dead end, config/defaults.json, to keep this test isolated to just the
+    // "which alternative wins" question) -- proving the fix generalises
+    // beyond the one case CodeRabbit's counter-example gave it: the
+    // file-only heuristic this replaced could not have told two alternatives
+    // apart either, since it always took the minimum index across every
+    // alternative file, in whichever order they happen to sort.
+    const twoAltScenario = {
+      ...scenario,
+      fix: { file: 'config/site.json', from: '', to: '' },
+      validAlternativeFixes: [
+        { file: 'src/retention.js', from: '', to: '' },
+        { file: 'src/archive.js', from: '', to: '' },
+      ],
+      deadEnds: [{ file: 'config/defaults.json', from: '', to: '' }],
+    };
+    // src/retention.js edited first, at index 1, then superseded by editing
+    // src/archive.js at index 4, right before the command went green at 5.
+    // A rule that took the minimum index across alternatives would credit
+    // retention.js and report tool call 1; the correct answer is archive.js,
+    // tool call 4 -- whatever was actually standing when it passed.
+    const score = scoreTrial(
+      record({ editIndex: { 'src/retention.js': 1, 'src/archive.js': 4 }, commandPassesAfter: true, passIndex: 5 }),
+      twoAltScenario,
+    );
+    expect(score.usedAlternativeFix).toBe(true);
+    expect(score.toolCallsBeforeFix).toBe(4);
+    expect(score.repeatedDeadEnd).toBe(false); // config/defaults.json, the only declared dead end here, was never touched
   });
 });
 
