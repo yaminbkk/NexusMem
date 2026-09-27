@@ -9,6 +9,10 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
 
 ## [Unreleased]
 
+No unreleased changes yet.
+
+## [0.11.0] — 2026-09-27
+
 ### Added
 
 - Ambient memory for coding agents: `nexusmem agent install` wires NexusMem into Claude Code's own
@@ -22,7 +26,8 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
     command failed here before, naming what was edited each time and what eventually fixed it. No
     match means no output.
   - **Session start.** Starts a background sync, then names commands that failed with no recorded
-    fix, in about 150 tokens. A repository with nothing unresolved gets nothing.
+    fix — and, for one already fixed, which file(s) the fix touched — in about 150 tokens. A
+    repository with nothing unresolved gets nothing.
   - Budgeted: at most one note per failure per session, five per session, and no embedding, model or
     network call on the path. If NexusMem is missing, broken or slow, the hook prints nothing and
     exits 0, and the agent carries on.
@@ -46,6 +51,20 @@ built from, matched by publish timestamp: `v0.1.0` → `67a4776`, `v0.1.1` → `
   passes with nothing edited in between, that pass is reported as unexplained instead of being
   linked as the fix — the pass is real, the explanation is not. Human shell history records no files,
   so its linking is unchanged.
+
+### Fixed
+
+- A command piped into `head`, `tail` or `tee` (`node check.js 2>&1 | head -100`) reports the
+  filter's exit code to Claude Code's hook, not the command it fed — `PostToolUse` fired even when
+  the piped command failed loudly, and the run was recorded as a false `ok`. Recorded as `unknown`
+  instead, and a repeat of the same command surfaces an honestly-worded note rather than either a
+  guessed pass or a guessed failure. A pipe into anything else (`| grep`, `| jq`, ...) is left
+  untouched — nothing about its own exit code is known here.
+- The per-session injection quota — "explain a failure once per session" — was a plain read
+  (`shouldInject`) then a later write (`markInjected`), racy across the separate OS processes Claude
+  Code actually spawns per tool call: confirmed live, 3 of 20 concurrent invocations printed the same
+  recall instead of 1. Replaced with a single lock-protected read-modify-write that never blocks —
+  contention or a stale lock both decline rather than wait.
 
 ## [0.10.5] — 2026-09-11
 
@@ -742,7 +761,8 @@ First public release.
   there is no local-model summarization pass, and the conversation collector has never been audited
   for the stale-node bug that was found and fixed in the docs collector.
 
-[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.10.5...HEAD
+[Unreleased]: https://github.com/yaminbkk/NexusMem/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/yaminbkk/NexusMem/compare/v0.10.5...v0.11.0
 [0.10.5]: https://github.com/yaminbkk/NexusMem/compare/v0.10.4...v0.10.5
 [0.10.4]: https://github.com/yaminbkk/NexusMem/compare/v0.10.3...v0.10.4
 [0.10.3]: https://github.com/yaminbkk/NexusMem/compare/v0.10.2...v0.10.3
